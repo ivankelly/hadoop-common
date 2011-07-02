@@ -27,8 +27,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundEditLog;
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundFSImage;
+import org.apache.hadoop.hdfs.server.namenode.FSImageStorageInspector.FSImageFile;
 import org.apache.hadoop.hdfs.util.MD5FileUtils;
 
 import com.google.common.collect.Lists;
@@ -77,19 +76,20 @@ public class NNStorageRetentionManager {
 
     long minImageTxId = getImageTxIdToRetain(inspector);
     purgeCheckpointsOlderThan(inspector, minImageTxId);
+
     // If fsimage_N is the image we want to keep, then we need to keep
     // all txns > N. We can remove anything < N+1, since fsimage_N
     // reflects the state up to and including N.
-    editLog.purgeLogsOlderThan(minImageTxId + 1, purger);
+    editLog.purgeTransactions(minImageTxId + 1);
   }
   
   private void purgeCheckpointsOlderThan(
       FSImageTransactionalStorageInspector inspector,
       long minTxId) {
-    for (FoundFSImage image : inspector.getFoundImages()) {
-      if (image.getTxId() < minTxId) {
+    for (FSImageFile image : inspector.getFoundImages()) {
+      if (image.getCheckpointTxId() < minTxId) {
         LOG.info("Purging old image " + image);
-        purger.purgeImage(image);
+        purger.purgeImage(image.getFile(), image.getCheckpointTxId());
       }
     }
   }
@@ -100,11 +100,10 @@ public class NNStorageRetentionManager {
    * that should be retained. 
    */
   private long getImageTxIdToRetain(FSImageTransactionalStorageInspector inspector) {
-      
-    List<FoundFSImage> images = inspector.getFoundImages();
+    List<FSImageFile> images = inspector.getFoundImages();
     TreeSet<Long> imageTxIds = Sets.newTreeSet();
-    for (FoundFSImage image : images) {
-      imageTxIds.add(image.getTxId());
+    for (FSImageFile image : images) {
+      imageTxIds.add(image.getCheckpointTxId());
     }
     
     List<Long> imageTxIdsList = Lists.newArrayList(imageTxIds);
@@ -119,25 +118,25 @@ public class NNStorageRetentionManager {
         minTxId);
     return minTxId;
   }
-  
+
   /**
    * Interface responsible for disposing of old checkpoints and edit logs.
    */
   static interface StoragePurger {
-    void purgeLog(FoundEditLog log);
-    void purgeImage(FoundFSImage image);
+    void purgeLog(File logfile, long firstTxId, long lastTxId);
+    void purgeImage(File image, long checkpointTxId);
   }
   
   static class DeletionStoragePurger implements StoragePurger {
     @Override
-    public void purgeLog(FoundEditLog log) {
-      deleteOrWarn(log.getFile());
+    public void purgeLog(File logfile, long firstTxId, long lastTxId) {
+      deleteOrWarn(logfile);
     }
 
     @Override
-    public void purgeImage(FoundFSImage image) {
-      deleteOrWarn(image.getFile());
-      deleteOrWarn(MD5FileUtils.getDigestFileForFile(image.getFile()));
+    public void purgeImage(File image, long checkpointTxId) {
+      deleteOrWarn(image);
+      deleteOrWarn(MD5FileUtils.getDigestFileForFile(image));
     }
 
     private static void deleteOrWarn(File file) {

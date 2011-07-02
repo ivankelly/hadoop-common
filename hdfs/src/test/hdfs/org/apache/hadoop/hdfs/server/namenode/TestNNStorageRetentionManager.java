@@ -17,6 +17,7 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -24,8 +25,7 @@ import java.util.Set;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundEditLog;
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundFSImage;
+import org.apache.hadoop.hdfs.server.namenode.FSImageStorageInspector.FSImageFile;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import static org.apache.hadoop.hdfs.server.namenode.NNStorage.getInProgressEditsFileName;
 import static org.apache.hadoop.hdfs.server.namenode.NNStorage.getFinalizedEditsFileName;
@@ -36,6 +36,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.mockito.Matchers;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
@@ -168,35 +169,35 @@ public class TestNNStorageRetentionManager {
 
     StoragePurger mockPurger =
       Mockito.mock(NNStorageRetentionManager.StoragePurger.class);
-    ArgumentCaptor<FoundFSImage> imagesPurgedCaptor =
-      ArgumentCaptor.forClass(FoundFSImage.class);    
-    ArgumentCaptor<FoundEditLog> logsPurgedCaptor =
-      ArgumentCaptor.forClass(FoundEditLog.class);    
+    ArgumentCaptor<File> imagesPurgedCaptor =
+      ArgumentCaptor.forClass(File.class);    
+    ArgumentCaptor<File> logsPurgedCaptor =
+      ArgumentCaptor.forClass(File.class);    
 
-    // Ask the manager to purge files we don't need any more
+    // Ask the manager to archive files we don't need any more
     new NNStorageRetentionManager(conf,
-        tc.mockStorage(), tc.mockEditLog(), mockPurger)
+        tc.mockStorage(), tc.mockEditLog(mockPurger), mockPurger)
       .purgeOldStorage();
     
-    // Verify that it asked the purger to remove the correct files
+    // Verify that it asked the archiver to remove the correct files
     Mockito.verify(mockPurger, Mockito.atLeast(0))
-      .purgeImage(imagesPurgedCaptor.capture());
+      .purgeImage(imagesPurgedCaptor.capture(), Matchers.anyLong());
     Mockito.verify(mockPurger, Mockito.atLeast(0))
-      .purgeLog(logsPurgedCaptor.capture());
+      .purgeLog(logsPurgedCaptor.capture(), Matchers.anyLong(), Matchers.anyLong());
 
     // Check images
     Set<String> purgedPaths = Sets.newHashSet();
-    for (FoundFSImage purged : imagesPurgedCaptor.getAllValues()) {
-      purgedPaths.add(purged.getFile().toString());
+    for (File purged : imagesPurgedCaptor.getAllValues()) {
+      purgedPaths.add(purged.toString());
     }    
     Assert.assertEquals(Joiner.on(",").join(tc.expectedPurgedImages),
         Joiner.on(",").join(purgedPaths));
 
     // Check images
     purgedPaths.clear();
-    for (FoundEditLog purged : logsPurgedCaptor.getAllValues()) {
-      purgedPaths.add(purged.getFile().toString());
-    }    
+    for (File purged : logsPurgedCaptor.getAllValues()) {
+      purgedPaths.add(purged.toString());
+    }
     Assert.assertEquals(Joiner.on(",").join(tc.expectedPurgedLogs),
         Joiner.on(",").join(purgedPaths));
   }
@@ -256,13 +257,14 @@ public class TestNNStorageRetentionManager {
       return mockStorageForDirs(sds.toArray(new StorageDirectory[0]));
     }
     
-    public FSEditLog mockEditLog() {
+    public FSEditLog mockEditLog(StoragePurger purger) {
       final List<JournalManager> jms = Lists.newArrayList();
       for (FakeRoot root : dirRoots.values()) {
         if (!root.type.isOfType(NameNodeDirType.EDITS)) continue;
         
         FileJournalManager fjm = new FileJournalManager(
             root.mockStorageDir());
+        fjm.purger = purger;
         jms.add(fjm);
       }
 
@@ -272,17 +274,15 @@ public class TestNNStorageRetentionManager {
         @Override
         public Void answer(InvocationOnMock invocation) throws Throwable {
           Object[] args = invocation.getArguments();
-          assert args.length == 2;
+          assert args.length == 1;
           long txId = (Long) args[0];
-          StoragePurger purger = (StoragePurger) args[1];
-          
           for (JournalManager jm : jms) {
-            jm.purgeLogsOlderThan(txId, purger);
+            jm.purgeTransactions(txId);
           }
           return null;
         }
-      }).when(mockLog).purgeLogsOlderThan(
-          Mockito.anyLong(), (StoragePurger) Mockito.anyObject());
+      }).when(mockLog).purgeTransactions(
+          Mockito.anyLong());
       return mockLog;
     }
   }

@@ -61,23 +61,35 @@ public class TestEditLogFileOutputStream {
       .getStorage().getStorageDir(0);
     File editLog = NNStorage.getInProgressEditsFile(sd, 1);
 
-    EditLogValidation validation = FSEditLogLoader.validateEditLog(editLog);
+    EditLogFileInputStream edits = new EditLogFileInputStream(editLog);
+    EditLogValidation validation = null;
+    try {
+      validation = FSEditLogLoader.validateEditLog(edits);
+    } finally {
+      edits.close();
+    }
     assertEquals("Edit log should contain a header as valid length",
-        HEADER_LEN, validation.validLength);
-    assertEquals(1, validation.numTransactions);
+        HEADER_LEN, validation.getValidLength());
+    assertEquals(1, validation.getNumTransactions());
     assertEquals("Edit log should have 1MB of bytes allocated",
         1024*1024, editLog.length());
     
 
     cluster.getFileSystem().mkdirs(new Path("/tmp"),
         new FsPermission((short)777));
+    edits = new EditLogFileInputStream(editLog);
+    try { 
+      validation = FSEditLogLoader.validateEditLog(edits);
+    } finally {
+      edits.close();
+    }
 
-    long oldLength = validation.validLength;
-    validation = FSEditLogLoader.validateEditLog(editLog);
+    long oldLength = validation.getValidLength();
+    validation = FSEditLogLoader.validateEditLog(edits);
     assertTrue("Edit log should have more valid data after writing a txn " +
-        "(was: " + oldLength + " now: " + validation.validLength + ")",
-        validation.validLength > oldLength);
-    assertEquals(2, validation.numTransactions);
+        "(was: " + oldLength + " now: " + validation.getValidLength() + ")",
+        validation.getValidLength() > oldLength);
+    assertEquals(2, validation.getNumTransactions());
 
     assertEquals("Edit log should be 1MB long",
         1024 * 1024, editLog.length());

@@ -31,6 +31,16 @@ import java.io.InputStream;
  */
 abstract class EditLogInputStream extends InputStream
 implements JournalStream {
+  /** 
+   * @return the first transaction which will be found in this stream
+   */
+  public abstract long getFirstTxId() throws IOException;
+
+  /** 
+   * @return the last transaction which will be found in this stream
+   */
+  public abstract long getLastTxId() throws IOException;
+
   /** {@inheritDoc} */
   public abstract int available() throws IOException;
 

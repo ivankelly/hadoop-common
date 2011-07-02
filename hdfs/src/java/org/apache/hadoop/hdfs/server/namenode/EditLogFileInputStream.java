@@ -18,6 +18,8 @@
 
 package org.apache.hadoop.hdfs.server.namenode;
 
+import org.apache.hadoop.hdfs.protocol.FSConstants;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -29,10 +31,26 @@ import java.io.IOException;
 class EditLogFileInputStream extends EditLogInputStream {
   private File file;
   private FileInputStream fStream;
+  final private long firstTxId;
+  final private long lastTxId;
 
   EditLogFileInputStream(File name) throws IOException {
+    this(name, FSConstants.INVALID_TXID, FSConstants.INVALID_TXID);
+  }
+  
+  EditLogFileInputStream(File name, long firstTxId, long lastTxId) throws IOException {
     file = name;
     fStream = new FileInputStream(name);
+    this.firstTxId = firstTxId;
+    this.lastTxId = lastTxId;
+  }
+
+  public long getFirstTxId() throws IOException {
+    return firstTxId;
+  }
+
+  public long getLastTxId() throws IOException {
+    return lastTxId;
   }
 
   @Override // JournalStream
