@@ -49,7 +49,13 @@ public class TestEditLogFileOutputStream {
       .getStorage().getStorageDir(0);
     File editLog = NNStorage.getInProgressEditsFile(sd, 1);
 
-    EditLogValidation validation = FSEditLogLoader.validateEditLog(editLog);
+    EditLogFileInputStream edits = new EditLogFileInputStream(editLog);
+    EditLogValidation validation = null;
+    try {
+      validation = FSEditLogLoader.validateEditLog(edits);
+    } finally {
+      edits.close();
+    }
     assertEquals("Edit log should contain a header as valid length",
         HEADER_LEN, validation.validLength);
     assertEquals(1, validation.numTransactions);
@@ -59,8 +65,13 @@ public class TestEditLogFileOutputStream {
 
     cluster.getFileSystem().mkdirs(new Path("/tmp"),
         new FsPermission((short)777));
+    edits = new EditLogFileInputStream(editLog);
+    try { 
+      validation = FSEditLogLoader.validateEditLog(edits);
+    } finally {
+      edits.close();
+    }
 
-    validation = FSEditLogLoader.validateEditLog(editLog);
     assertEquals("Edit log should have more valid data after writing a txn",
         MKDIR_LEN + HEADER_LEN,
         validation.validLength);

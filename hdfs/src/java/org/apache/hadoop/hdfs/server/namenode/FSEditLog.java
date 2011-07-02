@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.zip.Checksum;
 
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -38,6 +39,9 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorageArchivalManager.StorageAr
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
+import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
+import org.apache.hadoop.hdfs.protocol.LayoutVersion;
+import org.apache.hadoop.hdfs.protocol.LayoutVersion.Feature;
 import org.apache.hadoop.io.ArrayWritable;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.LongWritable;
@@ -776,14 +780,42 @@ public class FSEditLog  {
    */
   public RemoteEditLogManifest getEditLogManifest(long sinceTxId)
       throws IOException {
-    FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
-
-    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
-      inspector.inspectDirectory(sd);
-    }
+    FileJournalManager bestfj = null;
+    long maxtrans = 0;
     
-    return inspector.getEditLogManifest(sinceTxId);
+    List<RemoteEditLog> logs = new ArrayList<RemoteEditLog>();
+    List<FileJournalManager> fjs = new ArrayList<FileJournalManager>();
+    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
+      fjs.add(new FileJournalManager(sd));
+    }
+
+    do {
+      bestfj = null;
+      maxtrans = 0;
+      
+      for (FileJournalManager fj : fjs) {
+        try {
+          long trans = fj.getNumberOfFinalizedTransactions(sinceTxId);
+          if (trans > maxtrans) {
+            bestfj = fj;
+            maxtrans = trans;
+          }
+        } catch (IOException ioe) {
+          // cant use this journal manager
+        }
+      }
+      if (bestfj != null) {
+        RemoteEditLog log = bestfj.getRemoteEditLog(sinceTxId);
+        logs.add(log);
+        sinceTxId = log.getEndTxId() + 1;
+      }
+    } while (bestfj != null);
+    
+    if (logs.size() == 0) {
+      throw new IOException("There are no logs to transfer");
+    }
+
+    return new RemoteEditLogManifest(logs);
   }
   
   /**
@@ -1052,7 +1084,6 @@ public class FSEditLog  {
   
   /**
    * Called when some journals experience an error in some operation.
-   * This propagates errors to the storage level.
    */
   private void disableAndReportErrorOnJournals(List<JournalAndStream> badJournals) {
     if (badJournals == null || badJournals.isEmpty()) {
@@ -1069,6 +1100,22 @@ public class FSEditLog  {
       }
     }
   }
+
+  JournalManager getBestJournalManager(long fromTxId) throws IOException {
+    FileJournalManager bestjm = null;
+    long bestjmNumTxns = 0;
+    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
+      FileJournalManager candidate = new FileJournalManager(sd);
+      long candidateNumTxns = candidate.getNumberOfTransactions(fromTxId);
+      
+      if (candidateNumTxns > bestjmNumTxns) {
+        bestjm = candidate;
+        bestjmNumTxns = candidateNumTxns;
+      }
+    }
+    return bestjm;
+  }
+
 
   /**
    * Container for a JournalManager paired with its currently

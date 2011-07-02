@@ -33,11 +33,14 @@ public interface JournalManager {
    * TODO
    */
   EditLogOutputStream startLogSegment(long txId) throws IOException;
-  
+
   void finalizeLogSegment(long firstTxId, long lastTxId) throws IOException;
 
+  EditLogInputStream getInputStream(long fromTxnId) throws IOException;
+  long getNumberOfTransactions(long fromTxnId) throws IOException;
+
   /**
-   * Set the amount of memory that this stream should use to buffer edits
+   * Set the amount of memory that this stream should use to buffer edits.
    */
   void setOutputBufferCapacity(int size);
 
