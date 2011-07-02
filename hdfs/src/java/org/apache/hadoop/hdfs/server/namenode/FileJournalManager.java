@@ -146,13 +146,21 @@ public class FileJournalManager implements JournalManager {
     long numTxns = 0L;
 
     for (EditLogFile elf : getLogFiles(fromTxId)) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Counting " + elf);
+      }
       if (elf.startTxId > fromTxId) { // there must be a gap
         LOG.warn("Gap in transactions "
                  + fromTxId + " - " + (elf.startTxId - 1));
       } else if (fromTxId == elf.startTxId) {
-        if (elf.inprogress && !includeInProgress) {
-          break;
-        }
+        if (includeInProgress) {
+          elf = countTransactionsInInprogress(elf.file);
+        } else {
+          if (elf.inprogress) {
+            break;
+          }
+        }  
+        
         fromTxId = elf.endTxId + 1;
         numTxns += fromTxId - elf.startTxId;
         
@@ -215,9 +223,11 @@ public class FileJournalManager implements JournalManager {
     FSEditLogLoader loader = new FSEditLogLoader();
     FSEditLogLoader.EditLogValidation val 
       = loader.validateEditLog(edits);
-
+    
+    LOG.debug("file: " + f + " s:" + val.startTxId + " e:"+ val.endTxId
+              + " l:" + val.validLength + " t:" + val.numTransactions);
     EditLogFile elf = new EditLogFile(val.startTxId, val.endTxId, f, 
-                                      true, val.validLength == 0);
+                                      true, val.numTransactions == 0);
     synchronized(inprogressCache) {
       inprogressCache.put(f, elf);
     }
@@ -323,9 +333,14 @@ public class FileJournalManager implements JournalManager {
       this.corrupt = corrupt;
     }
 
-
     EditLogFile(long startTxId, long endTxId, File file) {
       this(startTxId, endTxId, file, false, false);
     }    
+
+    public String toString() {
+      return String.format("EditLogFile(file=%s,s=%019d,e=%019d,"
+          +"inprogress=%b,corrupt=%b", file.toString(),
+          startTxId, endTxId, inprogress, corrupt);
+    }
   }
 }
