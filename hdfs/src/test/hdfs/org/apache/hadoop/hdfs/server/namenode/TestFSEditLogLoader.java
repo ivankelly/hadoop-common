@@ -28,6 +28,8 @@ import java.util.Map;
 import java.util.SortedMap;
 
 import org.apache.commons.logging.impl.Log4JLogger;
+import java.util.List;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.fs.FileSystem;
@@ -76,7 +78,10 @@ public class TestFSEditLogLoader {
     StorageDirectory sd = fsimage.getStorage().dirIterator(NameNodeDirType.EDITS).next();
     cluster.shutdown();
 
-    File editFile = FSImageTestUtil.findLatestEditsLog(sd).getFile();
+    FileJournalManager fjm = new FileJournalManager(sd);
+    long startTxId = fsimage.getStorage().getMostRecentCheckpointTxId() + 1;
+    List<FileJournalManager.EditLogFile> logs = fjm.getLogFiles(startTxId);
+    File editFile = logs.get(logs.size() - 1).file;
     assertTrue("Should exist: " + editFile, editFile.exists());
 
     // Corrupt the edits file.
@@ -186,7 +191,14 @@ public class TestFSEditLogLoader {
 
     // Make sure that uncorrupted log has the expected length and number
     // of transactions.
-    EditLogValidation validation = FSEditLogLoader.validateEditLog(logFile);
+    EditLogFileInputStream s = new EditLogFileInputStream(logFile);
+    EditLogValidation validation;
+    try {
+      validation = FSEditLogLoader.validateEditLog(s);
+    } finally {
+      s.close();
+    }
+
     assertEquals(NUM_TXNS + 2, validation.numTransactions);
     assertEquals(validLength, validation.validLength);
     
@@ -202,7 +214,13 @@ public class TestFSEditLogLoader {
       // Restore backup, truncate the file exactly before the txn
       Files.copy(logFileBak, logFile);
       truncateFile(logFile, txOffset);
-      validation = FSEditLogLoader.validateEditLog(logFile);
+      
+      s = new EditLogFileInputStream(logFile);
+      try {
+        validation = FSEditLogLoader.validateEditLog(s);
+      } finally {
+        s.close();
+      }
       assertEquals("Failed when truncating to length " + txOffset,
           txid - 1, validation.numTransactions);
       assertEquals(txOffset, validation.validLength);
@@ -211,7 +229,12 @@ public class TestFSEditLogLoader {
       // also isn't valid
       Files.copy(logFileBak, logFile);
       truncateFile(logFile, txOffset + 1);
-      validation = FSEditLogLoader.validateEditLog(logFile);
+      s = new EditLogFileInputStream(logFile);
+      try {
+        validation = FSEditLogLoader.validateEditLog(s);
+      } finally {
+        s.close();
+      }
       assertEquals("Failed when truncating to length " + (txOffset + 1),
           txid - 1, validation.numTransactions);
       assertEquals(txOffset, validation.validLength);
@@ -219,7 +242,12 @@ public class TestFSEditLogLoader {
       // Restore backup, corrupt the txn opcode
       Files.copy(logFileBak, logFile);
       corruptByteInFile(logFile, txOffset);
-      validation = FSEditLogLoader.validateEditLog(logFile);
+      s = new EditLogFileInputStream(logFile);
+      try {
+        validation = FSEditLogLoader.validateEditLog(s);
+      } finally {
+        s.close();
+      }
       assertEquals("Failed when corrupting txn opcode at " + txOffset,
           txid - 1, validation.numTransactions);
       assertEquals(txOffset, validation.validLength);
@@ -227,7 +255,12 @@ public class TestFSEditLogLoader {
       // Restore backup, corrupt a byte a few bytes into the txn
       Files.copy(logFileBak, logFile);
       corruptByteInFile(logFile, txOffset+5);
-      validation = FSEditLogLoader.validateEditLog(logFile);
+      s = new EditLogFileInputStream(logFile);
+      try {
+        validation = FSEditLogLoader.validateEditLog(s);
+      } finally {
+        s.close();
+      }
       assertEquals("Failed when corrupting txn data at " + (txOffset+5),
           txid - 1, validation.numTransactions);
       assertEquals(txOffset, validation.validLength);
@@ -240,7 +273,13 @@ public class TestFSEditLogLoader {
     for (long offset = 0; offset < validLength; offset++) {
       Files.copy(logFileBak, logFile);
       corruptByteInFile(logFile, offset);
-      EditLogValidation val = FSEditLogLoader.validateEditLog(logFile);
+      EditLogValidation val = null;
+      s = new EditLogFileInputStream(logFile);
+      try {
+        val = FSEditLogLoader.validateEditLog(s);
+      } finally {
+        s.close();
+      }
       assertTrue(val.numTransactions >= prevNumValid);
       prevNumValid = val.numTransactions;
     }

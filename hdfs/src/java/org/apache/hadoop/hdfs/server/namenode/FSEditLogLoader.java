@@ -65,6 +65,10 @@ import org.apache.hadoop.hdfs.server.namenode.LeaseManager.Lease;
 public class FSEditLogLoader {
   private final FSNamesystem fsNamesys;
 
+  public FSEditLogLoader() {
+    this.fsNamesys = null;
+  }
+
   public FSEditLogLoader(FSNamesystem fsNamesys) {
     this.fsNamesys = fsNamesys;
   }
@@ -101,11 +105,11 @@ public class FSEditLogLoader {
       if(closeOnExit)
         in.close();
     }
-    
+
     return numEdits;
   }
 
-  @SuppressWarnings("deprecation")
+  @SuppressWarnings("deprecation,unchecked")
   int loadEditRecords(int logVersion, DataInputStream in,
                       Checksum checksum, boolean closeOnExit,
                       long expectedStartingTxId)
@@ -398,16 +402,14 @@ public class FSEditLogLoader {
                 reassignLeaseOp.path, reassignLeaseOp.newHolder, pendingFile);
             break;
           }
+          case OP_DATANODE_ADD: 
+          case OP_DATANODE_REMOVE: 
           case OP_START_LOG_SEGMENT:
           case OP_END_LOG_SEGMENT: {
             // no data in here currently.
             numOpOther++;
             break;
           }
-          case OP_DATANODE_ADD:
-          case OP_DATANODE_REMOVE:
-            numOpOther++;
-            break;
           default:
             throw new IOException("Invalid operation read " + op.opCode);
           }
@@ -482,55 +484,61 @@ public class FSEditLogLoader {
   }
   
   /**
-   * Return the number of valid transactions in the file. If the file is
-   * truncated during the header, returns a value indicating that there are
+   * Return the number of valid transactions in the stream. If the file is
+   * stream during the header, returns a value indicating that there are
    * 0 valid transactions.
    * @throws IOException if the file cannot be read due to an IO error (eg
    *                     if the log does not exist)
    */
-  static EditLogValidation validateEditLog(File f) throws IOException {
-    FileInputStream fis = new FileInputStream(f);
+  static EditLogValidation validateEditLog(EditLogInputStream edits) 
+      throws IOException {
+    PositionTrackingInputStream tracker = new PositionTrackingInputStream(
+        new BufferedInputStream(edits));
+    DataInputStream dis = new DataInputStream(tracker);
+    LogHeader header; 
     try {
-      PositionTrackingInputStream tracker = new PositionTrackingInputStream(
-          new BufferedInputStream(fis));
-      DataInputStream dis = new DataInputStream(tracker);
-      LogHeader header; 
-      try {
-        header = LogHeader.read(dis);
-      } catch (Throwable t) {
-        FSImage.LOG.debug("Unable to read header from " + f +
-            " -> no valid transactions in this file.");
-        return new EditLogValidation(0, 0);
-      }
-      
-      Reader reader = new FSEditLogOp.Reader(dis, header.logVersion, header.checksum);
-      long numValid = 0;
-      long lastPos = 0;
-      try {
-        while (true) {
-          lastPos = tracker.getPos();
-          if (reader.readOp() == null) {
-            break;
-          }
-          numValid++;
-        }
-      } catch (Throwable t) {
-        // Catch Throwable and not just IOE, since bad edits may generate
-        // NumberFormatExceptions, AssertionErrors, OutOfMemoryErrors, etc.
-        FSImage.LOG.debug("Caught exception after reading " + numValid +
-            " ops from " + f + " while determining its valid length.", t);
-      }
-      return new EditLogValidation(lastPos, numValid);
-    } finally {
-      fis.close();
+      header = LogHeader.read(dis);
+    } catch (Throwable t) {
+      FSImage.LOG.debug("Unable to read header from " + edits +
+                        " -> no valid transactions in this file.");
+      return new EditLogValidation(0, 0, -1, -1);
     }
+    
+    Reader reader = new FSEditLogOp.Reader(dis, header.logVersion, header.checksum);
+    long numValid = 0;
+    long lastPos = 0;
+    long startTxId = -1, endTxId = -1;
+
+    try {
+      FSEditLogOp op;
+      while (true) {
+        lastPos = tracker.getPos();
+        if ((op = reader.readOp()) == null) {
+          break;
+        }
+        if (startTxId == -1) {
+          startTxId = op.txid;
+        } 
+        endTxId = op.txid;
+        numValid++;
+      }
+    } catch (Throwable t) {
+      // Catch Throwable and not just IOE, since bad edits may generate
+      // NumberFormatExceptions, AssertionErrors, OutOfMemoryErrors, etc.
+      FSImage.LOG.debug("Caught exception after reading " + numValid +
+                        " ops from " + edits + " while determining its valid length.", t);
+    }
+    return new EditLogValidation(lastPos, numValid, startTxId, endTxId);
   }
   
   static class EditLogValidation {
     long validLength;
     long numTransactions;
+    long startTxId;
+    long endTxId;
     
-    EditLogValidation(long validLength, long numTransactions) {
+    EditLogValidation(long validLength, long numTransactions,
+                      long startTxId, long endTxId) {
       this.validLength = validLength;
       this.numTransactions = numTransactions;
     }

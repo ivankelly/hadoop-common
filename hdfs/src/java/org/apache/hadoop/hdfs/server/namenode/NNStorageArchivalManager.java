@@ -26,7 +26,6 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundEditLog;
 import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundFSImage;
 import org.apache.hadoop.hdfs.util.MD5FileUtils;
 
@@ -75,10 +74,11 @@ public class NNStorageArchivalManager {
 
     long minImageTxId = getImageTxIdToRetain(inspector);
     archiveCheckpointsOlderThan(inspector, minImageTxId);
+
     // If fsimage_N is the image we want to keep, then we need to keep
     // all txns > N. We can remove anything < N+1, since fsimage_N
     // reflects the state up to and including N.
-    editLog.archiveLogsOlderThan(minImageTxId + 1, archiver);
+          //editLog.archiveLogsOlderThan(minImageTxId + 1, archiver);
   }
   
   private void archiveCheckpointsOlderThan(
@@ -98,7 +98,6 @@ public class NNStorageArchivalManager {
    * that should be retained. 
    */
   private long getImageTxIdToRetain(FSImageTransactionalStorageInspector inspector) {
-      
     List<FoundFSImage> images = inspector.getFoundImages();
     TreeSet<Long> imageTxIds = Sets.newTreeSet();
     for (FoundFSImage image : images) {
@@ -122,16 +121,10 @@ public class NNStorageArchivalManager {
    * Interface responsible for archiving old checkpoints and edit logs.
    */
   static interface StorageArchiver {
-    void archiveLog(FoundEditLog log);
     void archiveImage(FoundFSImage image);
   }
   
   static class DeletionStorageArchiver implements StorageArchiver {
-    @Override
-    public void archiveLog(FoundEditLog log) {
-      log.getFile().delete();
-    }
-
     @Override
     public void archiveImage(FoundFSImage image) {
       image.getFile().delete();

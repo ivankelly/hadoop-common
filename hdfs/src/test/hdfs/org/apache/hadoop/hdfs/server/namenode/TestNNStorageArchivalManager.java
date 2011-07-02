@@ -24,7 +24,6 @@ import java.util.Set;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundEditLog;
 import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundFSImage;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import static org.apache.hadoop.hdfs.server.namenode.NNStorage.getInProgressEditsFileName;
@@ -44,7 +43,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-
+// IK TODO what to do about logs
 public class TestNNStorageArchivalManager {
   /**
    * Test the "easy case" where we have more images in the
@@ -170,8 +169,6 @@ public class TestNNStorageArchivalManager {
       Mockito.mock(NNStorageArchivalManager.StorageArchiver.class);
     ArgumentCaptor<FoundFSImage> imagesArchivedCaptor =
       ArgumentCaptor.forClass(FoundFSImage.class);    
-    ArgumentCaptor<FoundEditLog> logsArchivedCaptor =
-      ArgumentCaptor.forClass(FoundEditLog.class);    
 
     // Ask the manager to archive files we don't need any more
     new NNStorageArchivalManager(conf,
@@ -181,8 +178,6 @@ public class TestNNStorageArchivalManager {
     // Verify that it asked the archiver to remove the correct files
     Mockito.verify(mockArchiver, Mockito.atLeast(0))
       .archiveImage(imagesArchivedCaptor.capture());
-    Mockito.verify(mockArchiver, Mockito.atLeast(0))
-      .archiveLog(logsArchivedCaptor.capture());
 
     // Check images
     Set<String> archivedPaths = Sets.newHashSet();
@@ -190,14 +185,6 @@ public class TestNNStorageArchivalManager {
       archivedPaths.add(archived.getFile().toString());
     }    
     Assert.assertEquals(Joiner.on(",").join(tc.expectedArchivedImages),
-        Joiner.on(",").join(archivedPaths));
-
-    // Check images
-    archivedPaths.clear();
-    for (FoundEditLog archived : logsArchivedCaptor.getAllValues()) {
-      archivedPaths.add(archived.getFile().toString());
-    }    
-    Assert.assertEquals(Joiner.on(",").join(tc.expectedArchivedLogs),
         Joiner.on(",").join(archivedPaths));
   }
   

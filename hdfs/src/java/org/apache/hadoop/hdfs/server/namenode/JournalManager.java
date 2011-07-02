@@ -41,8 +41,11 @@ public interface JournalManager {
    */
   void finalizeLogSegment(long firstTxId, long lastTxId) throws IOException;
 
+  EditLogInputStream getInputStream(long fromTxnId) throws IOException;
+  long getNumberOfTransactions(long fromTxnId) throws IOException;
+
   /**
-   * Set the amount of memory that this stream should use to buffer edits
+   * Set the amount of memory that this stream should use to buffer edits.
    */
   void setOutputBufferCapacity(int size);
 
@@ -56,13 +59,5 @@ public interface JournalManager {
    * @throws IOException if purging fails
    */
   void archiveLogsOlderThan(long minTxIdToKeep, StorageArchiver archiver)
-    throws IOException;
-
-  /**
-   * @return an EditLogInputStream that reads from the same log that
-   * the edit log is currently writing. May return null if this journal
-   * manager does not support this operation.
-   */  
-  EditLogInputStream getInProgressInputStream(long segmentStartsAtTxId)
     throws IOException;
 }
