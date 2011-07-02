@@ -20,8 +20,8 @@ package org.apache.hadoop.hdfs.server.namenode;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.zip.Checksum;
-
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -748,7 +748,7 @@ public class FSEditLog  {
   /**
    * Return a manifest of what finalized edit logs are available
    */
-  public RemoteEditLogManifest getEditLogManifest(long sinceTxId)
+  public RemoteEditLogManifest getEditLogManifest(long fromTxId)
       throws IOException {
     FileJournalManager bestfj = null;
     long maxtrans = 0;
@@ -765,7 +765,7 @@ public class FSEditLog  {
       
       for (FileJournalManager fj : fjs) {
         try {
-          long trans = fj.getNumberOfFinalizedTransactions(sinceTxId);
+          long trans = fj.getNumberOfFinalizedTransactions(fromTxId);
           if (trans > maxtrans) {
             bestfj = fj;
             maxtrans = trans;
@@ -775,7 +775,7 @@ public class FSEditLog  {
         }
       }
       if (bestfj != null) {
-        RemoteEditLog log = bestfj.getRemoteEditLog(sinceTxId);
+        RemoteEditLog log = bestfj.getRemoteEditLog(fromTxId);
         logs.add(log);
         sinceTxId = log.getEndTxId() + 1;
       }

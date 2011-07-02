@@ -513,6 +513,7 @@ public class FSEditLogLoader {
       FSEditLogOp op;
       while (true) {
         lastPos = tracker.getPos();
+
         if ((op = reader.readOp()) == null) {
           break;
         }
@@ -541,6 +542,8 @@ public class FSEditLogLoader {
                       long startTxId, long endTxId) {
       this.validLength = validLength;
       this.numTransactions = numTransactions;
+      this.startTxId = startTxId;
+      this.endTxId = endTxId;
     }
   }
 
