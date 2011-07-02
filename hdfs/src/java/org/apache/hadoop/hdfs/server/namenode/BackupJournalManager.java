@@ -19,7 +19,6 @@ package org.apache.hadoop.hdfs.server.namenode;
 
 import java.io.IOException;
 
-import org.apache.hadoop.hdfs.server.namenode.NNStorageArchivalManager.StorageArchiver;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 
 /**
@@ -54,16 +53,23 @@ class BackupJournalManager implements JournalManager {
   }
 
   @Override
-  public void archiveLogsOlderThan(long minTxIdToKeep, StorageArchiver archiver)
+  public void purgeTransactions(long minTxIdToKeep)
       throws IOException {
   }
 
-  public boolean matchesRegistration(NamenodeRegistration bnReg) {
-    return bnReg.getAddress().equals(this.bnReg.getAddress());
+  @Override
+  public long getNumberOfTransactions(long fromTxnId) 
+      throws IOException, CorruptionException {
+    return 0;
+  }
+  
+  @Override
+  public EditLogInputStream getInputStream(long fromTxnId) throws IOException {
+    throw new IOException("Unsupported operation");
   }
 
-  @Override
-  public EditLogInputStream getInProgressInputStream(long segmentStartsAtTxId) {
-    return null;
+
+  public boolean matchesRegistration(NamenodeRegistration bnReg) {
+    return bnReg.getAddress().equals(this.bnReg.getAddress());
   }
 }

@@ -19,8 +19,6 @@ package org.apache.hadoop.hdfs.server.namenode;
 
 import java.io.IOException;
 
-import org.apache.hadoop.hdfs.server.namenode.NNStorageArchivalManager.StorageArchiver;
-
 /**
  * A JournalManager is responsible for managing a single place of storing
  * edit logs. It may correspond to multiple files, a backup node, etc.
@@ -42,7 +40,26 @@ interface JournalManager {
   void finalizeLogSegment(long firstTxId, long lastTxId) throws IOException;
 
   /**
-   * Set the amount of memory that this stream should use to buffer edits
+   * Get the input stream starting with fromTxnId from this journal manager
+   * @param fromTxnId the first transaction id we want to read
+   * @return the stream starting with transaction fromTxnId
+   * @throws IOException if a stream cannot be found.
+   */
+  EditLogInputStream getInputStream(long fromTxnId) throws IOException;
+
+  /**
+   * Get the number of transaction contiguously available from fromTxnId.
+   *
+   * @param fromTxnId Transaction id to count from
+   * @return The number of transactions available from fromTxnId
+   * @throws IOException if the journal cannot be read.
+   * @throws CorruptionException if there is a gap in the journal at fromTxnId.
+   */
+  long getNumberOfTransactions(long fromTxnId) 
+      throws IOException, CorruptionException;
+
+  /**
+   * Set the amount of memory that this stream should use to buffer edits.
    */
   void setOutputBufferCapacity(int size);
 
@@ -52,17 +69,20 @@ interface JournalManager {
    *
    * @param minTxIdToKeep the earliest txid that must be retained after purging
    *                      old logs
-   * @param archiver the archival implementation to use
    * @throws IOException if purging fails
    */
-  void archiveLogsOlderThan(long minTxIdToKeep, StorageArchiver archiver)
+  void purgeTransactions(long minTxIdToKeep)
     throws IOException;
 
-  /**
-   * @return an EditLogInputStream that reads from the same log that
-   * the edit log is currently writing. May return null if this journal
-   * manager does not support this operation.
-   */  
-  EditLogInputStream getInProgressInputStream(long segmentStartsAtTxId)
-    throws IOException;
+  /** 
+   * Indicate that a journal is cannot be used to load a certain range of 
+   * edits.
+   * This exception occurs in the case of a gap in the transactions, or a
+   * corrupt edit file.
+   */
+  public static class CorruptionException extends IOException {
+    public CorruptionException(String reason) {
+      super(reason);
+    }
+  }
 }

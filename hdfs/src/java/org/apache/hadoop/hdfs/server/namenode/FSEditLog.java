@@ -20,6 +20,7 @@ package org.apache.hadoop.hdfs.server.namenode;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.zip.Checksum;
 
 import org.apache.commons.logging.Log;
@@ -36,10 +37,11 @@ import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.NNStorageArchivalManager.StorageArchiver;
+import org.apache.hadoop.hdfs.server.namenode.JournalManager.CorruptionException;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
+import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
 import org.apache.hadoop.io.ArrayWritable;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.LongWritable;
@@ -148,6 +150,8 @@ public class FSEditLog  {
     this.storage = storage;
     metrics = NameNode.getNameNodeMetrics();
     lastPrintTime = now();
+    
+    initJournals();
   }
   
   /**
@@ -174,8 +178,7 @@ public class FSEditLog  {
    * log segment.
    */
   synchronized void open() throws IOException {
-    Preconditions.checkState(state == State.UNINITIALIZED);
-    initJournals();
+    Preconditions.checkState(state == State.BETWEEN_LOG_SEGMENTS);
 
     startLogSegment(getLastWrittenTxId() + 1, true);
     assert state == State.IN_SEGMENT : "Bad state: " + state;
@@ -495,7 +498,7 @@ public class FSEditLog  {
     buf.append(numTransactions);
     buf.append(" Total time for transactions(ms): ");
     buf.append(totalTimeTransactions);
-    buf.append("Number of transactions batched in Syncs: ");
+    buf.append(" Number of transactions batched in Syncs: ");
     buf.append(numTransactionsBatchedInSync);
     buf.append(" Number of syncs: ");
     for (JournalAndStream jas : journals) {
@@ -750,16 +753,44 @@ public class FSEditLog  {
   /**
    * Return a manifest of what finalized edit logs are available
    */
-  public RemoteEditLogManifest getEditLogManifest(long sinceTxId)
+  public RemoteEditLogManifest getEditLogManifest(long fromTxId)
       throws IOException {
-    FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
-
+    List<RemoteEditLog> logs = new ArrayList<RemoteEditLog>();
+    List<FileJournalManager> fjs = new ArrayList<FileJournalManager>();
     for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
-      inspector.inspectDirectory(sd);
+      fjs.add(new FileJournalManager(sd));
     }
-    
-    return inspector.getEditLogManifest(sinceTxId);
+
+    RemoteEditLog bestlog = null;
+    do {
+      bestlog = null;
+      
+      for (FileJournalManager fj : fjs) {
+        try {
+          RemoteEditLog candidate = fj.getRemoteEditLog(fromTxId); 
+          if (candidate == null) {
+            continue;
+          }
+
+          if (bestlog == null) {
+            bestlog = candidate;
+          } else if (candidate.getStartTxId() < bestlog.getStartTxId()) {
+            bestlog = candidate;
+          } else if (candidate.getStartTxId() == bestlog.getStartTxId()
+                     && candidate.getEndTxId() > bestlog.getEndTxId()) {
+            bestlog = candidate;
+          }
+        } catch (IOException ioe) {
+          LOG.warn("Cannot count transactions in journal " + fj);
+        }
+      }
+      if (bestlog != null) {
+        logs.add(bestlog);
+        fromTxId = bestlog.getEndTxId() + 1;
+      } 
+    } while (bestlog != null);
+
+    return new RemoteEditLogManifest(logs);
   }
   
   /**
@@ -870,8 +901,7 @@ public class FSEditLog  {
   /**
    * Archive any log files that are older than the given txid.
    */
-  public void archiveLogsOlderThan(
-      final long minTxIdToKeep, final StorageArchiver archiver) {
+  public void purgeTransactions(final long minTxIdToKeep) {
     synchronized (this) {
       // synchronized to prevent findbugs warning about inconsistent
       // synchronization. This will be JIT-ed out if asserts are
@@ -885,7 +915,7 @@ public class FSEditLog  {
     mapJournalsAndReportErrors(new JournalClosure() {
       @Override
       public void apply(JournalAndStream jas) throws IOException {
-        jas.manager.archiveLogsOlderThan(minTxIdToKeep, archiver);
+        jas.manager.purgeTransactions(minTxIdToKeep);
       }
     }, "archiving logs older than " + minTxIdToKeep);
   }
@@ -1035,7 +1065,6 @@ public class FSEditLog  {
   
   /**
    * Called when some journals experience an error in some operation.
-   * This propagates errors to the storage level.
    */
   private void disableAndReportErrorOnJournals(List<JournalAndStream> badJournals) {
     if (badJournals == null || badJournals.isEmpty()) {
@@ -1046,6 +1075,72 @@ public class FSEditLog  {
       LOG.error("Disabling journal " + j);
       j.abort();
     }
+  }
+
+  /**
+   * Find the best editlog input stream to read from txid.
+   * If a journal throws an CorruptionException while reading from a txn id,
+   * it means that it has more transactions, but can't find any from fromTxId. 
+   * If this is the case and no other journal has transactions, we should throw
+   * an exception as it means more transactions exist, we just can't load them.
+   *
+   * @param fromTxId Transaction id to start from.
+
+   * @return A edit log input stream with tranactions fromTxId 
+   *         or null if no more exist
+   */
+  private EditLogInputStream selectStream(long fromTxId) throws IOException {
+    JournalManager bestjm = null;
+    long bestjmNumTxns = 0;
+    CorruptionException corruption = null;
+
+    for (JournalAndStream jas : journals) {
+      JournalManager candidate = jas.getManager();
+      long candidateNumTxns = 0;
+      try {
+        candidateNumTxns = candidate.getNumberOfTransactions(fromTxId);
+      } catch (CorruptionException ce) {
+        corruption = ce;
+      } catch (IOException ioe) {
+        continue; // error reading disk, just skip
+      }
+      
+      if (candidateNumTxns > bestjmNumTxns) {
+        bestjm = candidate;
+        bestjmNumTxns = candidateNumTxns;
+      }
+    }
+    
+    if (bestjm == null) {
+      if (corruption != null) {
+        throw new IllegalStateException("No non-corrupt logs for txid " 
+                                        + fromTxId, corruption);
+      } else {
+        return null;
+      }
+    }
+
+    return bestjm.getInputStream(fromTxId);
+  }
+
+  /**
+   * @param toTxId The selected streams must allow 
+   */
+  Iterable<EditLogInputStream> selectInputStreams(long fromTxId, long toAtLeastTxId) 
+      throws IOException {
+    List<EditLogInputStream> streams = new ArrayList<EditLogInputStream>();
+    
+    EditLogInputStream stream = selectStream(fromTxId);
+    while (stream != null) {
+      fromTxId = stream.getLastTxId() + 1;
+      streams.add(stream);
+      stream = selectStream(fromTxId);
+    }
+    if (fromTxId <= toAtLeastTxId) {
+      throw new IOException("Expected to be able to load at least " +
+          toAtLeastTxId + " but could not find logs from " + fromTxId);
+    }
+    return streams;
   }
 
   /**
@@ -1112,34 +1207,8 @@ public class FSEditLog  {
       this.stream = stream;
     }
     
-    @VisibleForTesting
     JournalManager getManager() {
       return manager;
     }
-
-    private EditLogInputStream getInProgressInputStream() throws IOException {
-      return manager.getInProgressInputStream(segmentStartsAtTxId);
-    }
-  }
-
-  /**
-   * @return an EditLogInputStream that reads from the same log that
-   * the edit log is currently writing. This is used from the BackupNode
-   * during edits synchronization.
-   * @throws IOException if no valid logs are available.
-   */
-  synchronized EditLogInputStream getInProgressFileInputStream()
-      throws IOException {
-    for (JournalAndStream jas : journals) {
-      if (!jas.isActive()) continue;
-      try {
-        EditLogInputStream in = jas.getInProgressInputStream();
-        if (in != null) return in;
-      } catch (IOException ioe) {
-        LOG.warn("Unable to get the in-progress input stream from " + jas,
-            ioe);
-      }
-    }
-    throw new IOException("No in-progress stream provided edits");
   }
 }

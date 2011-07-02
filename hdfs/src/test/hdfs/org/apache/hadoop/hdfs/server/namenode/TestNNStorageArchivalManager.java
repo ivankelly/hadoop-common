@@ -17,6 +17,7 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -24,8 +25,7 @@ import java.util.Set;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundEditLog;
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundFSImage;
+import org.apache.hadoop.hdfs.server.namenode.FSImageStorageInspector.FSImageFile;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import static org.apache.hadoop.hdfs.server.namenode.NNStorage.getInProgressEditsFileName;
 import static org.apache.hadoop.hdfs.server.namenode.NNStorage.getFinalizedEditsFileName;
@@ -36,6 +36,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.mockito.Matchers;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
@@ -168,35 +169,35 @@ public class TestNNStorageArchivalManager {
 
     StorageArchiver mockArchiver =
       Mockito.mock(NNStorageArchivalManager.StorageArchiver.class);
-    ArgumentCaptor<FoundFSImage> imagesArchivedCaptor =
-      ArgumentCaptor.forClass(FoundFSImage.class);    
-    ArgumentCaptor<FoundEditLog> logsArchivedCaptor =
-      ArgumentCaptor.forClass(FoundEditLog.class);    
+    ArgumentCaptor<File> imagesArchivedCaptor =
+      ArgumentCaptor.forClass(File.class);    
+    ArgumentCaptor<File> logsArchivedCaptor =
+      ArgumentCaptor.forClass(File.class);    
 
     // Ask the manager to archive files we don't need any more
     new NNStorageArchivalManager(conf,
-        tc.mockStorage(), tc.mockEditLog(), mockArchiver)
+        tc.mockStorage(), tc.mockEditLog(mockArchiver), mockArchiver)
       .archiveOldStorage();
     
     // Verify that it asked the archiver to remove the correct files
     Mockito.verify(mockArchiver, Mockito.atLeast(0))
-      .archiveImage(imagesArchivedCaptor.capture());
+      .archiveImage(imagesArchivedCaptor.capture(), Matchers.anyLong());
     Mockito.verify(mockArchiver, Mockito.atLeast(0))
-      .archiveLog(logsArchivedCaptor.capture());
+      .archiveLog(logsArchivedCaptor.capture(), Matchers.anyLong(), Matchers.anyLong());
 
     // Check images
     Set<String> archivedPaths = Sets.newHashSet();
-    for (FoundFSImage archived : imagesArchivedCaptor.getAllValues()) {
-      archivedPaths.add(archived.getFile().toString());
+    for (File archived : imagesArchivedCaptor.getAllValues()) {
+      archivedPaths.add(archived.toString());
     }    
     Assert.assertEquals(Joiner.on(",").join(tc.expectedArchivedImages),
         Joiner.on(",").join(archivedPaths));
 
     // Check images
     archivedPaths.clear();
-    for (FoundEditLog archived : logsArchivedCaptor.getAllValues()) {
-      archivedPaths.add(archived.getFile().toString());
-    }    
+    for (File archived : logsArchivedCaptor.getAllValues()) {
+      archivedPaths.add(archived.toString());
+    }
     Assert.assertEquals(Joiner.on(",").join(tc.expectedArchivedLogs),
         Joiner.on(",").join(archivedPaths));
   }
@@ -256,13 +257,14 @@ public class TestNNStorageArchivalManager {
       return mockStorageForDirs(sds.toArray(new StorageDirectory[0]));
     }
     
-    public FSEditLog mockEditLog() {
+    public FSEditLog mockEditLog(StorageArchiver archiver) {
       final List<JournalManager> jms = Lists.newArrayList();
       for (FakeRoot root : dirRoots.values()) {
         if (!root.type.isOfType(NameNodeDirType.EDITS)) continue;
         
         FileJournalManager fjm = new FileJournalManager(
             root.mockStorageDir());
+        fjm.archiver = archiver;
         jms.add(fjm);
       }
 
@@ -272,17 +274,16 @@ public class TestNNStorageArchivalManager {
         @Override
         public Void answer(InvocationOnMock invocation) throws Throwable {
           Object[] args = invocation.getArguments();
-          assert args.length == 2;
+          assert args.length == 1;
           long txId = (Long) args[0];
-          StorageArchiver archiver = (StorageArchiver) args[1];
           
           for (JournalManager jm : jms) {
-            jm.archiveLogsOlderThan(txId, archiver);
+            jm.purgeTransactions(txId);
           }
           return null;
         }
-      }).when(mockLog).archiveLogsOlderThan(
-          Mockito.anyLong(), (StorageArchiver) Mockito.anyObject());
+      }).when(mockLog).purgeTransactions(
+          Mockito.anyLong());
       return mockLog;
     }
   }

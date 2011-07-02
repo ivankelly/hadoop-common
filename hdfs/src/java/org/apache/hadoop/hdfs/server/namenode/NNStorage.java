@@ -318,6 +318,23 @@ public class NNStorage extends Storage implements Closeable {
   }
 
   /**
+   * Return the storage directory corresponding to the passed URI
+   * @param uri URI of a storage directory
+   * @return The matching storage directory or null if none found
+   */
+  StorageDirectory getStorageDirectory(URI uri) throws IOException {
+    uri = Util.fileAsURI(new File(uri));
+    Iterator<StorageDirectory> it = dirIterator();
+    for (; it.hasNext(); ) {
+      StorageDirectory sd = it.next();
+      if (Util.fileAsURI(sd.getRoot()).equals(uri)) {
+        return sd;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Retrieve current directories of type IMAGE
    * @return Collection of URI representing image directories
    * @throws IOException in case of URI processing error
@@ -488,7 +505,7 @@ public class NNStorage extends Storage implements Closeable {
 
   /** Create new dfs name directory.  Caution: this destroys all files
    * in this filesystem. */
-  private void format(StorageDirectory sd) throws IOException {
+  void format(StorageDirectory sd) throws IOException {
     sd.clearDirectory(); // create currrent dir
     sd.write();
     writeTransactionIdFile(sd, 0);
@@ -1018,7 +1035,7 @@ public class NNStorage extends Storage implements Closeable {
       throws IOException {
     int minLayoutVersion = Integer.MAX_VALUE; // the newest
     int maxLayoutVersion = Integer.MIN_VALUE; // the oldest
-    
+
     // First determine what range of layout versions we're going to inspect
     for (Iterator<StorageDirectory> it = dirIterator();
          it.hasNext();) {
