@@ -17,6 +17,7 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
@@ -63,7 +64,7 @@ public class NNStorageArchivalManager {
   }
   
   public NNStorageArchivalManager(Configuration conf, NNStorage storage,
-      FSEditLog editLog) {
+                                  FSEditLog editLog) {
     this(conf, storage, editLog, new DeletionStorageArchiver());
   }
 
@@ -78,7 +79,7 @@ public class NNStorageArchivalManager {
     // If fsimage_N is the image we want to keep, then we need to keep
     // all txns > N. We can remove anything < N+1, since fsimage_N
     // reflects the state up to and including N.
-          //editLog.archiveLogsOlderThan(minImageTxId + 1, archiver);
+    editLog.archiveLogsOlderThan(minImageTxId + 1);
   }
   
   private void archiveCheckpointsOlderThan(
@@ -87,7 +88,7 @@ public class NNStorageArchivalManager {
     for (FoundFSImage image : inspector.getFoundImages()) {
       if (image.getTxId() < minTxId) {
         LOG.info("Purging old image " + image);
-        archiver.archiveImage(image);
+        archiver.archiveImage(image.getFile());
       }
     }
   }
@@ -116,19 +117,25 @@ public class NNStorageArchivalManager {
         minTxId);
     return minTxId;
   }
-  
+
   /**
    * Interface responsible for archiving old checkpoints and edit logs.
    */
   static interface StorageArchiver {
-    void archiveImage(FoundFSImage image);
+    void archiveLog(File logfile);
+    void archiveImage(File image);
   }
   
   static class DeletionStorageArchiver implements StorageArchiver {
     @Override
-    public void archiveImage(FoundFSImage image) {
-      image.getFile().delete();
-      MD5FileUtils.getDigestFileForFile(image.getFile()).delete();
+    public void archiveLog(File logfile) {
+      logfile.delete();
+    }
+
+    @Override
+    public void archiveImage(File image) {
+      image.delete();
+      MD5FileUtils.getDigestFileForFile(image).delete();
     }
   }
 }

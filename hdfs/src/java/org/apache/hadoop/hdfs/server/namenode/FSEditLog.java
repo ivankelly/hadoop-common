@@ -777,7 +777,7 @@ public class FSEditLog  {
       if (bestfj != null) {
         RemoteEditLog log = bestfj.getRemoteEditLog(fromTxId);
         logs.add(log);
-        sinceTxId = log.getEndTxId() + 1;
+        fromTxId = log.getEndTxId() + 1;
       }
     } while (bestfj != null);
     
@@ -890,8 +890,7 @@ public class FSEditLog  {
   /**
    * Archive any log files that are older than the given txid.
    */
-  public void archiveLogsOlderThan(
-      final long minTxIdToKeep, final StorageArchiver archiver) {
+  public void archiveLogsOlderThan(final long minTxIdToKeep) {
     assert curSegmentTxId == FSConstants.INVALID_TXID || // on format this is no-op
       minTxIdToKeep <= curSegmentTxId :
       "cannot archive logs older than txid " + minTxIdToKeep +
@@ -900,7 +899,7 @@ public class FSEditLog  {
     mapJournalsAndReportErrors(new JournalClosure() {
       @Override
       public void apply(JournalAndStream jas) throws IOException {
-        jas.manager.archiveLogsOlderThan(minTxIdToKeep, archiver);
+        jas.manager.archiveLogsOlderThan(minTxIdToKeep);
       }
     }, "archiving logs older than " + minTxIdToKeep);
   }

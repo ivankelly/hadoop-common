@@ -114,14 +114,17 @@ public class FileJournalManager implements JournalManager {
   }
 
   @Override
-  public void archiveLogsOlderThan(long minTxIdToKeep, StorageArchiver archiver)
+  public void archiveLogsOlderThan(long minTxIdToKeep)
       throws IOException {
+    StorageArchiver archiver 
+      = new NNStorageArchivalManager.DeletionStorageArchiver();
+
     File[] files = FileUtil.listFiles(sd.getCurrentDir());
     List<EditLogFile> editLogs = matchEditLogs(files);
     for (EditLogFile log : editLogs) {
       if (log.startTxId < minTxIdToKeep &&
           log.endTxId < minTxIdToKeep) {
-        // IK TODO (make non file dependent) archiver.archiveLog(log);
+        archiver.archiveLog(log.file);
       }
     }
   }
@@ -145,8 +148,8 @@ public class FileJournalManager implements JournalManager {
     long numTxns = 0L;
 
     for (EditLogFile elf : getLogFiles(fromTxId)) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Counting " + elf);
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Counting " + elf);
       }
       if (elf.startTxId > fromTxId) { // there must be a gap
         LOG.warn("Gap in transactions "
@@ -223,8 +226,6 @@ public class FileJournalManager implements JournalManager {
     FSEditLogLoader.EditLogValidation val 
       = loader.validateEditLog(edits);
     
-    LOG.debug("file: " + f + " s:" + val.startTxId + " e:"+ val.endTxId
-              + " l:" + val.validLength + " t:" + val.numTransactions);
     EditLogFile elf = new EditLogFile(val.startTxId, val.endTxId, f, 
                                       true, val.numTransactions == 0);
     synchronized(inprogressCache) {
@@ -338,7 +339,7 @@ public class FileJournalManager implements JournalManager {
 
     public String toString() {
       return String.format("EditLogFile(file=%s,s=%019d,e=%019d,"
-          +"inprogress=%b,corrupt=%b", file.toString(),
+          +"inprogress=%b,corrupt=%b)", file.toString(),
           startTxId, endTxId, inprogress, corrupt);
     }
   }

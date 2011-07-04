@@ -55,9 +55,8 @@ public interface JournalManager {
    *
    * @param minTxIdToKeep the earliest txid that must be retained after purging
    *                      old logs
-   * @param archiver the archival implementation to use
    * @throws IOException if purging fails
    */
-  void archiveLogsOlderThan(long minTxIdToKeep, StorageArchiver archiver)
+  void archiveLogsOlderThan(long minTxIdToKeep)
     throws IOException;
 }

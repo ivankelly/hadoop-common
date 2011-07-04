@@ -17,6 +17,7 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -167,8 +168,8 @@ public class TestNNStorageArchivalManager {
 
     StorageArchiver mockArchiver =
       Mockito.mock(NNStorageArchivalManager.StorageArchiver.class);
-    ArgumentCaptor<FoundFSImage> imagesArchivedCaptor =
-      ArgumentCaptor.forClass(FoundFSImage.class);    
+    ArgumentCaptor<File> imagesArchivedCaptor =
+      ArgumentCaptor.forClass(File.class);    
 
     // Ask the manager to archive files we don't need any more
     new NNStorageArchivalManager(conf,
@@ -181,8 +182,8 @@ public class TestNNStorageArchivalManager {
 
     // Check images
     Set<String> archivedPaths = Sets.newHashSet();
-    for (FoundFSImage archived : imagesArchivedCaptor.getAllValues()) {
-      archivedPaths.add(archived.getFile().toString());
+    for (File file : imagesArchivedCaptor.getAllValues()) {
+      archivedPaths.add(file.toString());
     }    
     Assert.assertEquals(Joiner.on(",").join(tc.expectedArchivedImages),
         Joiner.on(",").join(archivedPaths));
@@ -261,15 +262,14 @@ public class TestNNStorageArchivalManager {
           Object[] args = invocation.getArguments();
           assert args.length == 2;
           long txId = (Long) args[0];
-          StorageArchiver archiver = (StorageArchiver) args[1];
-          
+                    
           for (JournalManager jm : jms) {
-            jm.archiveLogsOlderThan(txId, archiver);
+            jm.archiveLogsOlderThan(txId);
           }
           return null;
         }
       }).when(mockLog).archiveLogsOlderThan(
-          Mockito.anyLong(), (StorageArchiver) Mockito.anyObject());
+          Mockito.anyLong());
       return mockLog;
     }
   }
