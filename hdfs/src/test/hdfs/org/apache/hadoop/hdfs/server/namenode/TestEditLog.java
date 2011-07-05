@@ -798,7 +798,7 @@ public class TestEditLog extends TestCase {
     
     FSEditLogLoader loader = new FSEditLogLoader();
     FSEditLogLoader.EditLogValidation val = loader.validateEditLog(elis);
-    return val.validLength;
+    return val.numTransactions;
   }
 
   static class AbortSpec {
@@ -838,8 +838,8 @@ public class TestEditLog extends TestCase {
       editlog.logGenerationStamp((long)i);
       editlog.logSync();
 
-      if (aborts.size() > 0 
-          && aborts.get(0).roll == (i+1)) {
+      while (aborts.size() > 0 
+             && aborts.get(0).roll == (i+1)) {
         AbortSpec spec = aborts.remove(0);
         editlog.getJournals().get(spec.logindex).abort();
       } 
@@ -877,17 +877,144 @@ public class TestEditLog extends TestCase {
     long totaltxnread = 0;
     FSEditLog editlog = new FSEditLog(storage);
     long startTxId = 1;
-    JournalManager jm = editlog.getBestJournalManager(startTxId);
-    while (jm != null)  {
-      long read = readAll(jm.getInputStream(startTxId), startTxId);
-      
+    EditLogInputStream edits = editlog.selectInputStream(startTxId);
+
+    while (edits != null)  {
+      long read = readAll(edits, startTxId);
+      LOG.info("Loading edits " + edits + " read " + read);
+
       startTxId += read;
       totaltxnread += read;
-      jm = editlog.getBestJournalManager(startTxId);
+      edits = editlog.selectInputStream(startTxId);
     }
 
     editlog.close();
     storage.close();
     assertEquals(TXNS_PER_ROLL*11, totaltxnread);    
   }
+
+  @Test
+  public void testLoadingWithGaps() throws IOException {
+    File f1 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/gaptest0");
+    ArrayList<URI> editUris = new ArrayList<URI>();
+    editUris.add(f1.toURI());
+    NNStorage storage = setupEdits(editUris, 3);
+    
+    final long startGapTxId = 1*TXNS_PER_ROLL + 1;
+    final long endGapTxId = 2*TXNS_PER_ROLL;
+
+    File[] files = new File(f1, "current").listFiles(new FilenameFilter() {
+        public boolean accept(File dir, String name) {
+          if (name.startsWith(NNStorage.getFinalizedEditsFileName(startGapTxId, endGapTxId))) {
+            return true;
+          }
+          return false;
+        }
+      });
+    assertEquals(1, files.length);
+    assertTrue(files[0].delete());
+    
+    FSEditLog editlog = new FSEditLog(storage);
+    long startTxId = endGapTxId + 1;
+    EditLogInputStream edits = editlog.selectInputStream(startTxId);
+    
+    long totaltxnread = 0;
+    while (edits != null)  {
+      long read = readAll(edits, startTxId);
+      LOG.info("Loading edits " + edits + " read " + read);
+
+      startTxId += read;
+      totaltxnread += read;
+      edits = editlog.selectInputStream(startTxId);
+
+      try {
+        edits = editlog.selectInputStream(startTxId);
+        if (startTxId == startGapTxId) {
+          fail("Should have thrown exception");
+        }
+      } catch (IllegalStateException ise) {
+        GenericTestUtils.assertExceptionContains(
+            "No non-corrupt logs for txid " + startGapTxId, ise);
+        startTxId = endGapTxId + 1;
+      }
+    }
+    assertEquals((TXNS_PER_ROLL*3) - TXNS_PER_ROLL, totaltxnread);
+  }
+
+  @Test
+  public void testEditLogManifest() throws IOException {
+    File f1 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/manifest0");
+    File f2 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/manifest1");
+    File f3 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/manifest2");
+
+    ArrayList<URI> editUris = new ArrayList<URI>();
+    editUris.add(f1.toURI());
+    editUris.add(f2.toURI());
+    editUris.add(f3.toURI());
+    NNStorage storage = setupEdits(editUris, 3);
+
+    storage = new NNStorage(new Configuration(),
+                            Collections.<URI>emptyList(),
+                            editUris);
+    FSEditLog editlog = new FSEditLog(storage);
+    assertEquals(String.format("[[%d,%d], [%d,%d], [%d,%d], [%d,%d]]", 
+                               1, TXNS_PER_ROLL, TXNS_PER_ROLL+1, TXNS_PER_ROLL*2,
+                               (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest(1).toString());
+    assertEquals(String.format("[[%d,%d], [%d,%d], [%d,%d]]", 
+                               TXNS_PER_ROLL+1, TXNS_PER_ROLL*2,
+                               (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest(TXNS_PER_ROLL+1).toString());
+    assertEquals(String.format("[[%d,%d], [%d,%d]]", 
+                               (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest((TXNS_PER_ROLL*2)+1).toString());
+    assertEquals(String.format("[[%d,%d]]", 
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest((TXNS_PER_ROLL*3)+1).toString());
+  }
+
+  @Test
+  public void testEditLogInprogressComesFirst() throws IOException {
+    File f1 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/manifest0");
+    File f2 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/manifest1");
+
+    ArrayList<URI> editUris = new ArrayList<URI>();
+    editUris.add(f1.toURI());
+    editUris.add(f2.toURI());
+    NNStorage storage = setupEdits(editUris, 3, 
+                                   new AbortSpec(3, 0));
+
+
+    storage = new NNStorage(new Configuration(),
+                            Collections.<URI>emptyList(),
+                            editUris);
+    FSEditLog editlog = new FSEditLog(storage);
+    assertEquals(String.format("[[%d,%d], [%d,%d], [%d,%d], [%d,%d]]", 
+                               1, TXNS_PER_ROLL, TXNS_PER_ROLL+1, TXNS_PER_ROLL*2,
+                               (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest(1).toString());
+    assertEquals(String.format("[[%d,%d], [%d,%d], [%d,%d]]", 
+                               TXNS_PER_ROLL+1, TXNS_PER_ROLL*2,
+                               (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest(TXNS_PER_ROLL+1).toString());
+    assertEquals(String.format("[[%d,%d], [%d,%d]]", 
+                               (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest((TXNS_PER_ROLL*2)+1).toString());
+    assertEquals(String.format("[[%d,%d]]", 
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest((TXNS_PER_ROLL*3)+1).toString());
+  }
+
 }

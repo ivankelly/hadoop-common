@@ -42,6 +42,7 @@ public interface JournalManager {
   void finalizeLogSegment(long firstTxId, long lastTxId) throws IOException;
 
   EditLogInputStream getInputStream(long fromTxnId) throws IOException;
+
   long getNumberOfTransactions(long fromTxnId) throws IOException;
 
   /**
@@ -59,4 +60,10 @@ public interface JournalManager {
    */
   void archiveLogsOlderThan(long minTxIdToKeep)
     throws IOException;
+
+  public static class CorruptionException extends IOException {
+    public CorruptionException(String reason) {
+      super(reason);
+    }
+  }
 }

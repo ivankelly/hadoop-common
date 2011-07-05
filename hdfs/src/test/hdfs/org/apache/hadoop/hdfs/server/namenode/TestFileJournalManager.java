@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.Arrays;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Iterator;
 
 import java.io.RandomAccessFile;
 import java.io.File;
@@ -48,6 +49,31 @@ import java.util.zip.CheckedInputStream;
 import java.util.zip.Checksum;
 
 public class TestFileJournalManager {
+
+  @Test
+  public void testNormalOperation() throws IOException {
+    File f1 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/normtest0");
+    File f2 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/normtest1");
+    File f3 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/normtest2");
+    
+    ArrayList<URI> editUris = new ArrayList<URI>();
+    editUris.add(f1.toURI());
+    editUris.add(f2.toURI());
+    editUris.add(f3.toURI());
+    NNStorage storage = setupEdits(editUris, 5);
+    
+    long numJournals = 0;
+    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
+      FileJournalManager jm = new FileJournalManager(sd);
+      assertEquals(6*TXNS_PER_ROLL, jm.getNumberOfTransactions(1));
+      numJournals++;
+    }
+    assertEquals(3, numJournals);
+  }
+
   @Test
   public void testInprogressRecovery() throws IOException {
     File f = new File(System.getProperty("test.build.data", "build/test/data") + "/filejournaltest0");
@@ -57,6 +83,70 @@ public class TestFileJournalManager {
     StorageDirectory sd = storage.dirIterator(NameNodeDirType.EDITS).next();
 
     FileJournalManager jm = new FileJournalManager(sd);
+    assertEquals(5*TXNS_PER_ROLL + TXNS_PER_FAIL, jm.getNumberOfTransactions(1));
+  }
+
+  @Test
+  public void testInprogressRecoveryMixed() throws IOException {
+    File f1 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/mixtest0");
+    File f2 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/mixtest1");
+    File f3 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/mixtest2");
+    
+    ArrayList<URI> editUris = new ArrayList<URI>();
+    editUris.add(f1.toURI());
+    editUris.add(f2.toURI());
+    editUris.add(f3.toURI());
+
+    // abort after the 5th roll 
+    NNStorage storage = setupEdits(editUris,
+                                   5, new AbortSpec(5, 1));
+    Iterator<StorageDirectory> dirs = storage.dirIterator(NameNodeDirType.EDITS);
+    StorageDirectory sd = dirs.next();
+    FileJournalManager jm = new FileJournalManager(sd);
+    assertEquals(6*TXNS_PER_ROLL, jm.getNumberOfTransactions(1));
+    
+    sd = dirs.next();
+    jm = new FileJournalManager(sd);
+    assertEquals(5*TXNS_PER_ROLL + TXNS_PER_FAIL, jm.getNumberOfTransactions(1));
+
+    sd = dirs.next();
+    jm = new FileJournalManager(sd);
+    assertEquals(6*TXNS_PER_ROLL, jm.getNumberOfTransactions(1));
+  }
+
+  @Test
+  public void testInprogressRecoveryAll() throws IOException {
+    File f1 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/failalltest0");
+    File f2 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/failalltest1");
+    File f3 = new File(System.getProperty("test.build.data", "build/test/data") 
+                       + "/failalltest2");
+    
+    ArrayList<URI> editUris = new ArrayList<URI>();
+    editUris.add(f1.toURI());
+    editUris.add(f2.toURI());
+    editUris.add(f3.toURI());
+
+    // abort after the 5th roll 
+    NNStorage storage = setupEdits(editUris, 5, 
+                                   new AbortSpec(5, 0),
+                                   new AbortSpec(5, 1),
+                                   new AbortSpec(5, 2));
+    Iterator<StorageDirectory> dirs = storage.dirIterator(NameNodeDirType.EDITS);
+    StorageDirectory sd = dirs.next();
+    FileJournalManager jm = new FileJournalManager(sd);
+    assertEquals(5*TXNS_PER_ROLL + TXNS_PER_FAIL, jm.getNumberOfTransactions(1));
+    
+    sd = dirs.next();
+    jm = new FileJournalManager(sd);
+    assertEquals(5*TXNS_PER_ROLL + TXNS_PER_FAIL, jm.getNumberOfTransactions(1));
+
+    sd = dirs.next();
+    jm = new FileJournalManager(sd);
     assertEquals(5*TXNS_PER_ROLL + TXNS_PER_FAIL, jm.getNumberOfTransactions(1));
   }
 

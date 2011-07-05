@@ -38,6 +38,7 @@ import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorageArchivalManager.StorageArchiver;
+import org.apache.hadoop.hdfs.server.namenode.JournalManager.CorruptionException;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
@@ -778,7 +779,7 @@ public class FSEditLog  {
         RemoteEditLog log = bestfj.getRemoteEditLog(fromTxId);
         logs.add(log);
         fromTxId = log.getEndTxId() + 1;
-      }
+      } 
     } while (bestfj != null);
     
     if (logs.size() == 0) {
@@ -1061,21 +1062,50 @@ public class FSEditLog  {
     }
   }
 
-  JournalManager getBestJournalManager(long fromTxId) throws IOException {
+  /**
+   * Find the best editlog input stream to read from txid.
+   * If a journal throws an CorruptionException while reading from a txn id,
+   * it means that it has more transactions, but can't find any from fromTxId. 
+   * If this is the case and no other journal has transactions, we should throw
+   * an exception as it means more transactions exist, we just can't load them.
+   *
+   * @param fromTxId Transaction id to start from.
+   * @return A edit log input stream with tranactions fromTxId 
+   *         or null if no more exist
+   */
+  EditLogInputStream selectInputStream(long fromTxId) throws IOException {
     FileJournalManager bestjm = null;
     long bestjmNumTxns = 0;
+    CorruptionException corruption = null;
+
     for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
       FileJournalManager candidate = new FileJournalManager(sd);
-      long candidateNumTxns = candidate.getNumberOfTransactions(fromTxId);
+      long candidateNumTxns = 0;
+      try {
+        candidateNumTxns = candidate.getNumberOfTransactions(fromTxId);
+      } catch (CorruptionException ce) {
+        corruption = ce;
+      } catch (IOException ioe) {
+        continue; // error reading disk, just skip
+      }
       
       if (candidateNumTxns > bestjmNumTxns) {
         bestjm = candidate;
         bestjmNumTxns = candidateNumTxns;
       }
     }
-    return bestjm;
-  }
+    
+    if (bestjm == null) {
+      if (corruption != null) {
+        throw new IllegalStateException("No non-corrupt logs for txid " 
+                                        + fromTxId, corruption);
+      } else {
+        return null;
+      }
+    }
 
+    return bestjm.getInputStream(fromTxId);
+  }
 
   /**
    * Container for a JournalManager paired with its currently

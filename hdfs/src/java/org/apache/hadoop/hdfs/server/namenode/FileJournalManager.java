@@ -28,6 +28,7 @@ import java.util.List;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.NNStorageArchivalManager.StorageArchiver;
+import org.apache.hadoop.hdfs.server.namenode.JournalManager.CorruptionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -143,7 +144,7 @@ public class FileJournalManager implements JournalManager {
                           + " as first first txid");
   }
 
-  public long getNumberOfTransactionsInternal(long fromTxId, boolean includeInProgress)
+  private long getNumberOfTransactionsInternal(long fromTxId, boolean includeInProgress)
       throws IOException {
     long numTxns = 0L;
 
@@ -155,14 +156,17 @@ public class FileJournalManager implements JournalManager {
         LOG.warn("Gap in transactions "
                  + fromTxId + " - " + (elf.startTxId - 1));
       } else if (fromTxId == elf.startTxId) {
-        if (includeInProgress) {
+        if (elf.inprogress && includeInProgress) {
           elf = countTransactionsInInprogress(elf.file);
         } else {
           if (elf.inprogress) {
             break;
           }
-        }  
-        
+        }
+
+        if (elf.corrupt) {
+          break;
+        }
         fromTxId = elf.endTxId + 1;
         numTxns += fromTxId - elf.startTxId;
         
@@ -176,9 +180,34 @@ public class FileJournalManager implements JournalManager {
       LOG.debug("Journal " + this + " has " + numTxns 
                 + " txns from " + fromTxId);
     }
+
+    if (numTxns == 0 && fromTxId <= getMaxLoadableTransaction()) {
+      String error = String.format("Gap in transactions, max txnid is %d"
+          + ", 0 txns from %d", getMaxLoadableTransaction(), fromTxId);
+      LOG.error(error);
+      throw new CorruptionException(error);
+    }
+
     return numTxns;
   }
 
+   public long getMaxLoadableTransaction() 
+      throws IOException {
+    long max = 0L;
+    for (EditLogFile elf : getLogFiles(0)) {
+      if (elf.inprogress) {
+        if (elf.startTxId > max) {
+          max = elf.startTxId;
+        }
+        elf = countTransactionsInInprogress(elf.file);
+      }
+      if (elf.endTxId > max) {
+        max = elf.endTxId;
+      }
+    }
+    return max;
+  }
+  
   @Override
   public long getNumberOfTransactions(long fromTxId) throws IOException {
     return getNumberOfTransactionsInternal(fromTxId, true);

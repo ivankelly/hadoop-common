@@ -666,10 +666,8 @@ public class FSImage implements Closeable {
 
     if (LayoutVersion.supports(Feature.TXID_BASED_LAYOUT, 
                                getLayoutVersion())) {
-      JournalManager journal = editLog.getBestJournalManager(startingTxId);
-
-      while (journal != null) {
-        EditLogInputStream editIn = journal.getInputStream(startingTxId);
+      EditLogInputStream editIn = editLog.selectInputStream(startingTxId);
+      while (editIn != null) {
         LOG.debug("Reading " + editIn + " expecting start txid #" + startingTxId);
         
         int thisNumLoaded = loader.loadFSEdits(editIn, startingTxId);
@@ -677,7 +675,8 @@ public class FSImage implements Closeable {
         startingTxId += thisNumLoaded;
         numLoaded += thisNumLoaded;
         editIn.close();
-        journal = editLog.getBestJournalManager(startingTxId);
+        
+        editIn = editLog.selectInputStream(startingTxId);
       }
     } else {
       FSImageOldStorageInspector inspector = new FSImageOldStorageInspector();
