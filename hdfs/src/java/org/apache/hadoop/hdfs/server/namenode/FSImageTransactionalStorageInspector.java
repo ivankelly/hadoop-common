@@ -54,7 +54,8 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
 
   private boolean needToSave = false;
   private boolean isUpgradeFinalized = true;
-  
+  private long maxSeenTxId = 0;
+
   List<FoundFSImage> foundImages = new ArrayList<FoundFSImage>();
   
   private static final Pattern IMAGE_REGEX = Pattern.compile(
@@ -69,6 +70,8 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
       return;
     }
     
+    maxSeenTxId = Math.max(maxSeenTxId, NNStorage.readTransactionIdFile(sd));
+
     File currentDir = sd.getCurrentDir();
     File filesInStorage[];
     try {
@@ -127,7 +130,12 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
     }
     return ret;
   }
-  
+
+  @Override
+  long getMaxSeenTxId() {
+    return maxSeenTxId;
+  }
+
   public List<FoundFSImage> getFoundImages() {
     return ImmutableList.copyOf(foundImages);
   }

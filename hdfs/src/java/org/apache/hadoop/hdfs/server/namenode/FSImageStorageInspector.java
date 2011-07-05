@@ -48,7 +48,12 @@ abstract class FSImageStorageInspector {
    * @throws IOException if not enough files are available (eg no image found in any directory)
    */
   abstract File getImageFileForLoading() throws IOException;
-  
+
+  /** 
+   * Get the minimum tx id which should be loaded with this set of images.
+   */
+  abstract long getMaxSeenTxId();
+
   /**
    * @return true if the directories are in such a state that the image should be re-saved
    * following the load

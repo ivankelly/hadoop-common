@@ -260,4 +260,9 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
     }
     return files;
   }
+  
+  @Override
+  long getMaxSeenTxId() {
+    return 0L;
+  }
 }

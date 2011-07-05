@@ -1042,7 +1042,7 @@ public class NNStorage extends Storage implements Closeable {
       throws IOException {
     int minLayoutVersion = Integer.MAX_VALUE; // the newest
     int maxLayoutVersion = Integer.MIN_VALUE; // the oldest
-    
+
     // First determine what range of layout versions we're going to inspect
     for (Iterator<StorageDirectory> it = dirIterator();
          it.hasNext();) {
