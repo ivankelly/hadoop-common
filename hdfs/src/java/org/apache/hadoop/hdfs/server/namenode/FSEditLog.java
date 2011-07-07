@@ -891,7 +891,7 @@ public class FSEditLog  {
   /**
    * Archive any log files that are older than the given txid.
    */
-  public void archiveLogsOlderThan(final long minTxIdToKeep) {
+  public void purgeTransactions(final long minTxIdToKeep) {
     assert curSegmentTxId == FSConstants.INVALID_TXID || // on format this is no-op
       minTxIdToKeep <= curSegmentTxId :
       "cannot archive logs older than txid " + minTxIdToKeep +
@@ -900,7 +900,7 @@ public class FSEditLog  {
     mapJournalsAndReportErrors(new JournalClosure() {
       @Override
       public void apply(JournalAndStream jas) throws IOException {
-        jas.manager.archiveLogsOlderThan(minTxIdToKeep);
+        jas.manager.purgeTransactions(minTxIdToKeep);
       }
     }, "archiving logs older than " + minTxIdToKeep);
   }

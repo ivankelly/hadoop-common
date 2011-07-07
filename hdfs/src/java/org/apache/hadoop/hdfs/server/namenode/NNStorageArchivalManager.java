@@ -79,7 +79,7 @@ public class NNStorageArchivalManager {
     // If fsimage_N is the image we want to keep, then we need to keep
     // all txns > N. We can remove anything < N+1, since fsimage_N
     // reflects the state up to and including N.
-    editLog.archiveLogsOlderThan(minImageTxId + 1);
+    editLog.purgeTransactions(minImageTxId + 1);
   }
   
   private void archiveCheckpointsOlderThan(

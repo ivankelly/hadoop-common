@@ -115,7 +115,7 @@ public class FileJournalManager implements JournalManager {
   }
 
   @Override
-  public void archiveLogsOlderThan(long minTxIdToKeep)
+  public void purgeTransactions(long minTxIdToKeep)
       throws IOException {
     StorageArchiver archiver 
       = new NNStorageArchivalManager.DeletionStorageArchiver();
@@ -191,7 +191,7 @@ public class FileJournalManager implements JournalManager {
     return numTxns;
   }
 
-   public long getMaxLoadableTransaction() 
+  private long getMaxLoadableTransaction() 
       throws IOException {
     long max = 0L;
     for (EditLogFile elf : getLogFiles(0)) {

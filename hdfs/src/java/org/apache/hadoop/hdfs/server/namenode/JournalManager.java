@@ -58,7 +58,7 @@ public interface JournalManager {
    *                      old logs
    * @throws IOException if purging fails
    */
-  void archiveLogsOlderThan(long minTxIdToKeep)
+  void purgeTransactions(long minTxIdToKeep)
     throws IOException;
 
   public static class CorruptionException extends IOException {

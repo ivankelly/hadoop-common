@@ -264,11 +264,11 @@ public class TestNNStorageArchivalManager {
           long txId = (Long) args[0];
                     
           for (JournalManager jm : jms) {
-            jm.archiveLogsOlderThan(txId);
+            jm.purgeTransactions(txId);
           }
           return null;
         }
-      }).when(mockLog).archiveLogsOlderThan(
+      }).when(mockLog).purgeTransactions(
           Mockito.anyLong());
       return mockLog;
     }
