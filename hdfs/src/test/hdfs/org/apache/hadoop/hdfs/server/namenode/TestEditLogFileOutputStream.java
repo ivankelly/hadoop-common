@@ -70,8 +70,8 @@ public class TestEditLogFileOutputStream {
       edits.close();
     }
     assertEquals("Edit log should contain a header as valid length",
-        HEADER_LEN, validation.validLength);
-    assertEquals(1, validation.numTransactions);
+        HEADER_LEN, validation.getValidLength());
+    assertEquals(1, validation.getNumTransactions());
     assertEquals("Edit log should have 1MB of bytes allocated",
         1024*1024, editLog.length());
     
@@ -87,8 +87,8 @@ public class TestEditLogFileOutputStream {
 
     assertEquals("Edit log should have more valid data after writing a txn",
         MKDIR_LEN + HEADER_LEN,
-        validation.validLength);
-    assertEquals(2, validation.numTransactions);
+        validation.getValidLength());
+    assertEquals(2, validation.getNumTransactions());
 
     assertEquals("Edit log should be 1MB long",
         1024 * 1024, editLog.length());

@@ -47,7 +47,7 @@ abstract class FSImageStorageInspector {
    * Get the image files which should be loaded into the filesystem.
    * @throws IOException if not enough files are available (eg no image found in any directory)
    */
-  abstract File getImageFileForLoading() throws IOException;
+  abstract FSImageFile getLatestImage() throws IOException;
 
   /** 
    * Get the minimum tx id which should be loaded with this set of images.
@@ -59,4 +59,38 @@ abstract class FSImageStorageInspector {
    * following the load
    */
   abstract boolean needToSave();
+
+  /**
+   * Record of an image that has been located and had its filename parsed.
+   */
+  static class FSImageFile {
+    final StorageDirectory sd;    
+    final long txId;
+    private final File file;
+    
+    FSImageFile(StorageDirectory sd, File file, long txId) {
+      assert txId >= 0 : "Invalid txid on " + file +": " + txId;
+      
+      this.sd = sd;
+      this.txId = txId;
+      this.file = file;
+    } 
+
+    StorageDirectory getStorageDirectory() {
+      return sd;
+    }
+
+    File getFile() {
+      return file;
+    }
+
+    public long getCheckpointTxId() {
+      return txId;
+    }
+    
+    @Override
+    public String toString() {
+      return file.toString();
+    }
+  }  
 }

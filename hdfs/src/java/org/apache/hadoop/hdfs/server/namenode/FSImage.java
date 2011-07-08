@@ -133,8 +133,7 @@ public class FSImage implements Closeable {
                     Collection<URI> imageDirs, Collection<URI> editsDirs)
       throws IOException {
     this.conf = conf;
-    this.editsDirs = new ArrayList<URI>();
-    this.editsDirs.addAll(editsDirs);
+    this.editsDirs = Lists.newArrayList(editsDirs);
 
     setCheckpointDirectories(FSImage.getCheckpointDirs(conf, null),
                              FSImage.getCheckpointEditsDirs(conf, null));
@@ -591,32 +590,48 @@ public class FSImage implements Closeable {
     
     isUpgradeFinalized = inspector.isUpgradeFinalized();
 
-    File imageFile = inspector.getImageFileForLoading();
+    FSImageStorageInspector.FSImageFile imageFile 
+      = inspector.getLatestImage();
     boolean needToSave = inspector.needToSave();
-    
+    Iterable<EditLogInputStream> editStreams = null;
+
+    if (LayoutVersion.supports(Feature.TXID_BASED_LAYOUT, 
+                               getLayoutVersion())) {
+      editStreams = editLog.selectInputStreams(imageFile.getCheckpointTxId() + 1,
+                                               inspector.getMaxSeenTxId());
+    } else {
+      editStreams = FSImageOldStorageInspector.getEditLogStreams(storage);
+    }
+
     LOG.debug("Planning to load image :\n" + imageFile);
+    for (EditLogInputStream l : editStreams) {
+      LOG.debug("\t Planning to load edit stream: " + l);
+    }
     
+    imageFile.getStorageDirectory().read();
     try {
       if (LayoutVersion.supports(Feature.TXID_BASED_LAYOUT,
                                  getLayoutVersion())) {
         // For txid-based layout, we should have a .md5 file
         // next to the image file
-        loadFSImage(imageFile);
+        loadFSImage(imageFile.getFile());
       } else if (LayoutVersion.supports(Feature.FSIMAGE_CHECKSUM,
                                         getLayoutVersion())) {
         // In 0.22, we have the checksum stored in the VERSION file.
         String md5 = storage.getDeprecatedProperty(
             NNStorage.DEPRECATED_MESSAGE_DIGEST_PROPERTY);
         if (md5 == null) {
-          throw new InconsistentFSStateException(imageFile.getParentFile(),
+          throw new InconsistentFSStateException(
+              imageFile.getFile().getParentFile(),
               "Message digest property " +
               NNStorage.DEPRECATED_MESSAGE_DIGEST_PROPERTY +
-              " not set for storage directory " + imageFile.getParent());
+              " not set for storage directory " + 
+              imageFile.getFile().getParent());
         }
-        loadFSImage(imageFile, new MD5Hash(md5));
+        loadFSImage(imageFile.getFile(), new MD5Hash(md5));
       } else {
         // We don't have any record of the md5sum
-        loadFSImage(imageFile, null);
+        loadFSImage(imageFile.getFile(), null);
       }
     } catch (IOException ioe) {
       throw new IOException("Failed to load image from " + imageFile, ioe);
@@ -664,32 +679,14 @@ public class FSImage implements Closeable {
     int numLoaded = 0;
     // Load latest edits
 
-    if (LayoutVersion.supports(Feature.TXID_BASED_LAYOUT, 
-                               getLayoutVersion())) {
-      EditLogInputStream editIn = editLog.selectInputStream(startingTxId);
-      while (editIn != null) {
-        LOG.debug("Reading " + editIn + " expecting start txid #" + startingTxId);
-        
-        int thisNumLoaded = loader.loadFSEdits(editIn, startingTxId);
-        
-        startingTxId += thisNumLoaded;
-        numLoaded += thisNumLoaded;
-        editIn.close();
-        
-        editIn = editLog.selectInputStream(startingTxId);
-      }
-    } else {
-      FSImageOldStorageInspector inspector = new FSImageOldStorageInspector();
-      storage.inspectStorageDirs(inspector);
+    for (EditLogInputStream editIn : editStreams) {
+      LOG.info("Reading " + editIn + " expecting start txid #" + startingTxId);
       
-      for (File f : inspector.getLatestEditsFiles()) {
-        EditLogInputStream editIn = new EditLogFileInputStream(f);
-        LOG.debug("Reading " + editIn + " (Pre transaction editlog)");
-        int thisNumLoaded = loader.loadFSEdits(editIn, startingTxId);
-        startingTxId += thisNumLoaded;
-        numLoaded += thisNumLoaded;
-        editIn.close();
-      }
+      int thisNumLoaded = loader.loadFSEdits(editIn, startingTxId);
+      
+      startingTxId += thisNumLoaded;
+      numLoaded += thisNumLoaded;
+      editIn.close();
     }
 
     // update the counts

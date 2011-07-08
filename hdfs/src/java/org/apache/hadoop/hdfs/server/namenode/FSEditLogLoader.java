@@ -65,10 +65,6 @@ import org.apache.hadoop.hdfs.server.namenode.LeaseManager.Lease;
 public class FSEditLogLoader {
   private final FSNamesystem fsNamesys;
 
-  public FSEditLogLoader() {
-    this.fsNamesys = null;
-  }
-
   public FSEditLogLoader(FSNamesystem fsNamesys) {
     this.fsNamesys = fsNamesys;
   }
@@ -109,7 +105,7 @@ public class FSEditLogLoader {
     return numEdits;
   }
 
-  @SuppressWarnings("deprecation,unchecked")
+  @SuppressWarnings("deprecation")
   int loadEditRecords(int logVersion, DataInputStream in,
                       Checksum checksum, boolean closeOnExit,
                       long expectedStartingTxId)
@@ -484,8 +480,8 @@ public class FSEditLogLoader {
   }
   
   /**
-   * Return the number of valid transactions in the stream. If the file is
-   * stream during the header, returns a value indicating that there are
+   * Return the number of valid transactions in the stream. If the stream
+   * truncated during the header, returns a value indicating that there are
    * 0 valid transactions.
    * @throws IOException if the file cannot be read due to an IO error (eg
    *                     if the log does not exist)
@@ -501,13 +497,14 @@ public class FSEditLogLoader {
     } catch (Throwable t) {
       FSImage.LOG.debug("Unable to read header from " + edits +
                         " -> no valid transactions in this file.");
-      return new EditLogValidation(0, 0, -1, -1);
+      return new EditLogValidation(0, 
+          FSConstants.INVALID_TXID, FSConstants.INVALID_TXID);
     }
     
     Reader reader = new FSEditLogOp.Reader(dis, header.logVersion, header.checksum);
-    long numValid = 0;
     long lastPos = 0;
-    long startTxId = -1, endTxId = -1;
+    long startTxId = FSConstants.INVALID_TXID;
+    long endTxId = FSConstants.INVALID_TXID;
 
     try {
       FSEditLogOp op;
@@ -517,33 +514,52 @@ public class FSEditLogLoader {
         if ((op = reader.readOp()) == null) {
           break;
         }
-        if (startTxId == -1) {
+        if (startTxId == FSConstants.INVALID_TXID) {
           startTxId = op.txid;
         } 
+        // make sure txid always increases by 1
+        if (endTxId != FSConstants.INVALID_TXID
+            && op.txid != endTxId + 1) {
+          FSImage.LOG.debug("Corrupt log, expected txid " + (endTxId + 1)
+                            + " but got " + op.txid);
+          return new EditLogValidation(0, 
+                                       FSConstants.INVALID_TXID, FSConstants.INVALID_TXID);
+        }
         endTxId = op.txid;
-        numValid++;
       }
     } catch (Throwable t) {
       // Catch Throwable and not just IOE, since bad edits may generate
       // NumberFormatExceptions, AssertionErrors, OutOfMemoryErrors, etc.
-      FSImage.LOG.debug("Caught exception after reading " + numValid +
+      FSImage.LOG.debug("Caught exception after reading " + ((endTxId - startTxId)+1) +
                         " ops from " + edits + " while determining its valid length.", t);
     }
-    return new EditLogValidation(lastPos, numValid, startTxId, endTxId);
+    return new EditLogValidation(lastPos, startTxId, endTxId);
   }
   
   static class EditLogValidation {
-    long validLength;
-    long numTransactions;
-    long startTxId;
-    long endTxId;
+    private long validLength;
+    private long startTxId;
+    private long endTxId;
     
-    EditLogValidation(long validLength, long numTransactions,
+    EditLogValidation(long validLength, 
                       long startTxId, long endTxId) {
       this.validLength = validLength;
-      this.numTransactions = numTransactions;
       this.startTxId = startTxId;
       this.endTxId = endTxId;
+    }
+
+    long getValidLength() { return validLength; }
+    
+    long getStartTxId() { return startTxId; }
+    
+    long getEndTxId() { return endTxId; }
+    
+    long getNumTransactions() { 
+      if (endTxId == FSConstants.INVALID_TXID
+          || startTxId == FSConstants.INVALID_TXID) {
+        return 0;
+      }
+      return (endTxId - startTxId) + 1;
     }
   }
 

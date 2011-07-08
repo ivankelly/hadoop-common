@@ -64,7 +64,7 @@ public class FileJournalManager implements JournalManager {
       NameNodeFile.EDITS_INPROGRESS.getName() + "_(\\d+)");
 
   // Avoid counting the file more than once.
-  private static Map<File, EditLogFile> inprogressCache 
+  private static Map<File, EditLogFile> inProgressCache 
     = new ConcurrentHashMap<File, EditLogFile>(0);
 
   public FileJournalManager(StorageDirectory sd) {
@@ -85,11 +85,11 @@ public class FileJournalManager implements JournalManager {
   @Override
   public void finalizeLogSegment(long firstTxId, long lastTxId)
       throws IOException {
-    File inprogressFile = NNStorage.getInProgressEditsFile(
+    File inProgressFile = NNStorage.getInProgressEditsFile(
         sd, firstTxId);
     File dstFile = NNStorage.getFinalizedEditsFile(
         sd, firstTxId, lastTxId);
-    LOG.debug("Finalizing edits file " + inprogressFile + " -> " + dstFile);
+    LOG.debug("Finalizing edits file " + inProgressFile + " -> " + dstFile);
 
     Preconditions.checkState(!dstFile.exists(),
         "Can't finalize edits file " + inprogressFile + " since finalized file " +
@@ -125,7 +125,7 @@ public class FileJournalManager implements JournalManager {
     for (EditLogFile log : editLogs) {
       if (log.startTxId < minTxIdToKeep &&
           log.endTxId < minTxIdToKeep) {
-        archiver.archiveLog(log.file);
+        archiver.archiveLog(log.file, log.startTxId, log.endTxId);
       }
     }
   }
@@ -156,10 +156,10 @@ public class FileJournalManager implements JournalManager {
         LOG.warn("Gap in transactions "
                  + fromTxId + " - " + (elf.startTxId - 1));
       } else if (fromTxId == elf.startTxId) {
-        if (elf.inprogress && includeInProgress) {
+        if (elf.inProgress && includeInProgress) {
           elf = countTransactionsInInprogress(elf.file);
         } else {
-          if (elf.inprogress) {
+          if (elf.inProgress) {
             break;
           }
         }
@@ -170,7 +170,7 @@ public class FileJournalManager implements JournalManager {
         fromTxId = elf.endTxId + 1;
         numTxns += fromTxId - elf.startTxId;
         
-        if (elf.inprogress) {
+        if (elf.inProgress) {
           break;
         }
       } // else skip
@@ -195,7 +195,7 @@ public class FileJournalManager implements JournalManager {
       throws IOException {
     long max = 0L;
     for (EditLogFile elf : getLogFiles(0)) {
-      if (elf.inprogress) {
+      if (elf.inProgress) {
         if (elf.startTxId > max) {
           max = elf.startTxId;
         }
@@ -244,21 +244,20 @@ public class FileJournalManager implements JournalManager {
 
   private EditLogFile countTransactionsInInprogress(File f) 
       throws IOException {
-    synchronized(inprogressCache) {
-      if (inprogressCache.containsKey(f)) {
-        return inprogressCache.get(f);
+    synchronized(inProgressCache) {
+      if (inProgressCache.containsKey(f)) {
+        return inProgressCache.get(f);
       }
     }
 
     EditLogFileInputStream edits = new EditLogFileInputStream(f);
-    FSEditLogLoader loader = new FSEditLogLoader();
     FSEditLogLoader.EditLogValidation val 
-      = loader.validateEditLog(edits);
+      = FSEditLogLoader.validateEditLog(edits);
     
-    EditLogFile elf = new EditLogFile(val.startTxId, val.endTxId, f, 
-                                      true, val.numTransactions == 0);
-    synchronized(inprogressCache) {
-      inprogressCache.put(f, elf);
+    EditLogFile elf = new EditLogFile(val.getStartTxId(), val.getEndTxId(), f, 
+                                      true, val.getNumTransactions() == 0);
+    synchronized(inProgressCache) {
+      inProgressCache.put(f, elf);
     }
     return elf;
   }
@@ -312,35 +311,23 @@ public class FileJournalManager implements JournalManager {
 
   List<EditLogFile> getLogFiles(long fromTxId) throws IOException {
     File currentDir = sd.getCurrentDir();
-    List<EditLogFile> alllogfiles = matchEditLogs(currentDir.listFiles());
-    List<EditLogFile> logfiles = new ArrayList<EditLogFile>();
+    List<EditLogFile> allLogFiles = matchEditLogs(currentDir.listFiles());
+    List<EditLogFile> logFiles = new ArrayList<EditLogFile>();
 
-    for (EditLogFile elf : alllogfiles) {
+    for (EditLogFile elf : allLogFiles) {
       if (fromTxId > elf.startTxId
           && fromTxId <= elf.endTxId) {
         throw new IOException("Asked for fromTxId " + fromTxId
             + " which is in middle of file " + elf.file);
       }
       if (fromTxId <= elf.startTxId) {
-        logfiles.add(elf);
+        logFiles.add(elf);
       }
-      continue;
     }
 
-    Collections.sort(logfiles, new Comparator<EditLogFile>() {
-        public int compare(EditLogFile o1,
-                           EditLogFile o2) {
-          if (o1.startTxId < o2.startTxId) {
-            return -1;
-          } else if (o1.startTxId == o2.startTxId) {
-            return 0;
-          } else {
-            return 1;
-          }
-        }
-      });
+    Collections.sort(logFiles, EditLogFile.COMPARE_BY_START_TXID);
 
-    return logfiles;
+    return logFiles;
   }
 
   static class EditLogFile {
@@ -348,17 +335,31 @@ public class FileJournalManager implements JournalManager {
     final long startTxId;
     long endTxId;
     final File file;
-    boolean inprogress;
+    boolean inProgress;
     boolean corrupt = false;
+
+    final static Comparator COMPARE_BY_START_TXID 
+      = new Comparator<EditLogFile>() {
+      public int compare(EditLogFile o1,
+                         EditLogFile o2) {
+        if (o1.startTxId < o2.startTxId) {
+          return -1;
+        } else if (o1.startTxId == o2.startTxId) {
+          return 0;
+        } else {
+          return 1;
+        }
+      }
+    };
 
     EditLogFile(long startTxId, long endTxId,
                 File file, 
-                boolean inprogress,
+                boolean inProgress,
                 boolean corrupt) {
       this.startTxId = startTxId;
       this.endTxId = endTxId;
       this.file = file;
-      this.inprogress = inprogress;
+      this.inProgress = inProgress;
       this.corrupt = corrupt;
     }
 
@@ -368,8 +369,8 @@ public class FileJournalManager implements JournalManager {
 
     public String toString() {
       return String.format("EditLogFile(file=%s,s=%019d,e=%019d,"
-          +"inprogress=%b,corrupt=%b)", file.toString(),
-          startTxId, endTxId, inprogress, corrupt);
+          +"inProgress=%b,corrupt=%b)", file.toString(),
+          startTxId, endTxId, inProgress, corrupt);
     }
   }
 }

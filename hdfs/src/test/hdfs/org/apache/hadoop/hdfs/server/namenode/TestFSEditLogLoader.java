@@ -199,8 +199,8 @@ public class TestFSEditLogLoader {
       s.close();
     }
 
-    assertEquals(NUM_TXNS + 2, validation.numTransactions);
-    assertEquals(validLength, validation.validLength);
+    assertEquals(NUM_TXNS + 2, validation.getNumTransactions());
+    assertEquals(validLength, validation.getValidLength());
     
     // Back up the uncorrupted log
     File logFileBak = new File(testDir, logFile.getName() + ".bak");
@@ -222,8 +222,8 @@ public class TestFSEditLogLoader {
         s.close();
       }
       assertEquals("Failed when truncating to length " + txOffset,
-          txid - 1, validation.numTransactions);
-      assertEquals(txOffset, validation.validLength);
+          txid - 1, validation.getNumTransactions());
+      assertEquals(txOffset, validation.getValidLength());
 
       // Restore backup, truncate the file with one byte in the txn,
       // also isn't valid
@@ -236,8 +236,8 @@ public class TestFSEditLogLoader {
         s.close();
       }
       assertEquals("Failed when truncating to length " + (txOffset + 1),
-          txid - 1, validation.numTransactions);
-      assertEquals(txOffset, validation.validLength);
+          txid - 1, validation.getNumTransactions());
+      assertEquals(txOffset, validation.getValidLength());
 
       // Restore backup, corrupt the txn opcode
       Files.copy(logFileBak, logFile);
@@ -249,8 +249,8 @@ public class TestFSEditLogLoader {
         s.close();
       }
       assertEquals("Failed when corrupting txn opcode at " + txOffset,
-          txid - 1, validation.numTransactions);
-      assertEquals(txOffset, validation.validLength);
+          txid - 1, validation.getNumTransactions());
+      assertEquals(txOffset, validation.getValidLength());
 
       // Restore backup, corrupt a byte a few bytes into the txn
       Files.copy(logFileBak, logFile);
@@ -262,8 +262,8 @@ public class TestFSEditLogLoader {
         s.close();
       }
       assertEquals("Failed when corrupting txn data at " + (txOffset+5),
-          txid - 1, validation.numTransactions);
-      assertEquals(txOffset, validation.validLength);
+          txid - 1, validation.getNumTransactions());
+      assertEquals(txOffset, validation.getValidLength());
     }
     
     // Corrupt the log at every offset to make sure that validation itself
@@ -280,8 +280,8 @@ public class TestFSEditLogLoader {
       } finally {
         s.close();
       }
-      assertTrue(val.numTransactions >= prevNumValid);
-      prevNumValid = val.numTransactions;
+      assertTrue(val.getNumTransactions() >= prevNumValid);
+      prevNumValid = val.getNumTransactions();
     }
   }
 

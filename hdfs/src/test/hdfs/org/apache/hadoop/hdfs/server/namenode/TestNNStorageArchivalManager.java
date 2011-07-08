@@ -25,7 +25,7 @@ import java.util.Set;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundFSImage;
+import org.apache.hadoop.hdfs.server.namenode.FSImageStorageInspector.FSImageFile;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import static org.apache.hadoop.hdfs.server.namenode.NNStorage.getInProgressEditsFileName;
 import static org.apache.hadoop.hdfs.server.namenode.NNStorage.getFinalizedEditsFileName;
@@ -44,7 +44,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-// IK TODO what to do about logs
 public class TestNNStorageArchivalManager {
   /**
    * Test the "easy case" where we have more images in the
@@ -178,7 +177,7 @@ public class TestNNStorageArchivalManager {
     
     // Verify that it asked the archiver to remove the correct files
     Mockito.verify(mockArchiver, Mockito.atLeast(0))
-      .archiveImage(imagesArchivedCaptor.capture());
+      .archiveImage(imagesArchivedCaptor.capture(), 0);
 
     // Check images
     Set<String> archivedPaths = Sets.newHashSet();

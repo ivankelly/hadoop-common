@@ -33,6 +33,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
@@ -143,7 +144,7 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
   }
   
   @Override
-  File getImageFileForLoading() throws IOException {
+  FSImageFile getLatestImage() throws IOException {
     // We should have at least one image and one edits dirs
     if (latestNameSD == null)
       throw new IOException("Image file is not found in " + imageDirs);
@@ -173,9 +174,9 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
 
     needToSaveAfterRecovery = recoverLatestStorageDirectories();
 
-    latestNameSD.read();
-    
-    return NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE);
+    return new FSImageFile(latestNameSD, 
+        NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE),
+        FSConstants.INVALID_TXID);
   }
   
   @Override
@@ -184,6 +185,18 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
       checkpointTimes.size() != 1 ||
       latestNameCheckpointTime > latestEditsCheckpointTime || 
       needToSaveAfterRecovery;
+  }
+
+  static Iterable<EditLogInputStream> getEditLogStreams(NNStorage storage)
+      throws IOException {
+    FSImageOldStorageInspector inspector = new FSImageOldStorageInspector();
+    storage.inspectStorageDirs(inspector);
+
+    List<EditLogInputStream> editStreams = new ArrayList<EditLogInputStream>();
+    for (File f : inspector.getLatestEditsFiles()) {
+      editStreams.add(new EditLogFileInputStream(f));
+    }
+    return editStreams;
   }
 
   List<File> getLatestEditsFiles() {

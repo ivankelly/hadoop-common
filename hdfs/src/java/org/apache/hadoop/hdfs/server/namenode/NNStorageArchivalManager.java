@@ -27,7 +27,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundFSImage;
+import org.apache.hadoop.hdfs.server.namenode.FSImageStorageInspector.FSImageFile;
 import org.apache.hadoop.hdfs.util.MD5FileUtils;
 
 import com.google.common.collect.Lists;
@@ -85,10 +85,10 @@ public class NNStorageArchivalManager {
   private void archiveCheckpointsOlderThan(
       FSImageTransactionalStorageInspector inspector,
       long minTxId) {
-    for (FoundFSImage image : inspector.getFoundImages()) {
-      if (image.getTxId() < minTxId) {
+    for (FSImageFile image : inspector.getFoundImages()) {
+      if (image.getCheckpointTxId() < minTxId) {
         LOG.info("Purging old image " + image);
-        archiver.archiveImage(image.getFile());
+        archiver.archiveImage(image.getFile(), image.getCheckpointTxId());
       }
     }
   }
@@ -99,10 +99,10 @@ public class NNStorageArchivalManager {
    * that should be retained. 
    */
   private long getImageTxIdToRetain(FSImageTransactionalStorageInspector inspector) {
-    List<FoundFSImage> images = inspector.getFoundImages();
+    List<FSImageFile> images = inspector.getFoundImages();
     TreeSet<Long> imageTxIds = Sets.newTreeSet();
-    for (FoundFSImage image : images) {
-      imageTxIds.add(image.getTxId());
+    for (FSImageFile image : images) {
+      imageTxIds.add(image.getCheckpointTxId());
     }
     
     List<Long> imageTxIdsList = Lists.newArrayList(imageTxIds);
@@ -122,18 +122,18 @@ public class NNStorageArchivalManager {
    * Interface responsible for archiving old checkpoints and edit logs.
    */
   static interface StorageArchiver {
-    void archiveLog(File logfile);
-    void archiveImage(File image);
+    void archiveLog(File logfile, long firstTxId, long lastTxId);
+    void archiveImage(File image, long checkpointTxId);
   }
   
   static class DeletionStorageArchiver implements StorageArchiver {
     @Override
-    public void archiveLog(File logfile) {
+    public void archiveLog(File logfile, long firstTxId, long lastTxId) {
       logfile.delete();
     }
 
     @Override
-    public void archiveImage(File image) {
+    public void archiveImage(File image, long checkpointTxId) {
       image.delete();
       MD5FileUtils.getDigestFileForFile(image).delete();
     }

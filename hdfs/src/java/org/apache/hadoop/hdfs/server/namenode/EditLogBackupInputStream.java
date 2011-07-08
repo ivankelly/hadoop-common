@@ -17,6 +17,8 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
+import org.apache.hadoop.hdfs.protocol.FSConstants;
+
 import java.io.DataInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -65,6 +67,14 @@ class EditLogBackupInputStream extends EditLogInputStream {
     address = name;
     inner = new ByteBufferInputStream();
     in = new DataInputStream(inner);
+  }
+
+  public long getFirstTxId() throws IOException {
+    return FSConstants.INVALID_TXID;
+  }
+
+  public long getLastTxId() throws IOException {
+    return FSConstants.INVALID_TXID;
   }
 
   @Override // JournalStream

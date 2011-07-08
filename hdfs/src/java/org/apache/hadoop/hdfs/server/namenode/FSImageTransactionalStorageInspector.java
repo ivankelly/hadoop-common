@@ -56,7 +56,7 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
   private boolean isUpgradeFinalized = true;
   private long maxSeenTxId = 0;
 
-  List<FoundFSImage> foundImages = new ArrayList<FoundFSImage>();
+  List<FSImageFile> foundImages = new ArrayList<FSImageFile>();
   
   private static final Pattern IMAGE_REGEX = Pattern.compile(
     NameNodeFile.IMAGE.getName() + "_(\\d+)");
@@ -92,7 +92,7 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
         if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
           try {
             long txid = Long.valueOf(imageMatch.group(1));
-            foundImages.add(new FoundFSImage(sd, f, txid));
+            foundImages.add(new FSImageFile(sd, f, txid));
           } catch (NumberFormatException nfe) {
             LOG.error("Image file " + f + " has improperly formatted " +
                       "transaction ID");
@@ -121,9 +121,14 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
    * 
    * Returns null if no images were found.
    */
-  FoundFSImage getLatestImage() {
-    FoundFSImage ret = null;
-    for (FoundFSImage img : foundImages) {
+  @Override
+  FSImageFile getLatestImage() throws IOException {
+    if (foundImages.isEmpty()) {
+      throw new FileNotFoundException("No valid image files found");
+    }
+
+    FSImageFile ret = null;
+    for (FSImageFile img : foundImages) {
       if (ret == null || img.txId > ret.txId) {
         ret = img;
       }
@@ -136,54 +141,12 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
     return maxSeenTxId;
   }
 
-  public List<FoundFSImage> getFoundImages() {
+  public List<FSImageFile> getFoundImages() {
     return ImmutableList.copyOf(foundImages);
   }
   
   @Override
-  File getImageFileForLoading() throws IOException {
-    if (foundImages.isEmpty()) {
-      throw new FileNotFoundException("No valid image files found");
-    }
-
-    FoundFSImage recoveryImage = getLatestImage();
-    recoveryImage.sd.read();
-
-    return recoveryImage.file;
-  }
-
-  @Override
   public boolean needToSave() {
     return false; // TODO do we need to do this ever?
-  }
-    
-  /**
-   * Record of an image that has been located and had its filename parsed.
-   */
-  static class FoundFSImage {
-    final StorageDirectory sd;    
-    final long txId;
-    private final File file;
-    
-    FoundFSImage(StorageDirectory sd, File file, long txId) {
-      assert txId >= 0 : "Invalid txid on " + file +": " + txId;
-      
-      this.sd = sd;
-      this.txId = txId;
-      this.file = file;
-    } 
-    
-    File getFile() {
-      return file;
-    }
-
-    public long getTxId() {
-      return txId;
-    }
-    
-    @Override
-    public String toString() {
-      return file.toString();
-    }
-  }  
+  }    
 }

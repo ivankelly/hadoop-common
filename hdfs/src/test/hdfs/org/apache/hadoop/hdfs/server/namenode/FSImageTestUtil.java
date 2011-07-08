@@ -39,7 +39,7 @@ import java.util.Set;
 
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundFSImage;
+import org.apache.hadoop.hdfs.server.namenode.FSImageStorageInspector.FSImageFile;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.util.MD5FileUtils;
 import org.apache.hadoop.io.IOUtils;
@@ -130,9 +130,9 @@ public abstract class FSImageTestUtil {
     for (File dir : dirs) {
       FSImageTransactionalStorageInspector inspector =
         inspectStorageDirectory(dir, NameNodeDirType.IMAGE);
-      FoundFSImage latestImage = inspector.getLatestImage();
+      FSImageFile latestImage = inspector.getLatestImage();
       assertNotNull("No image in " + dir, latestImage);      
-      long thisTxId = latestImage.getTxId();
+      long thisTxId = latestImage.getCheckpointTxId();
       if (imageTxId != -1 && thisTxId != imageTxId) {
         fail("Storage directory " + dir + " does not have the same " +
             "last image index " + imageTxId + " as another");
@@ -259,7 +259,7 @@ public abstract class FSImageTestUtil {
       new FSImageTransactionalStorageInspector();
     inspector.inspectDirectory(sd);
 
-    FoundFSImage latestImage = inspector.getLatestImage();
+    FSImageFile latestImage = inspector.getLatestImage();
     return (latestImage == null) ? null : latestImage.getFile();
   }
 

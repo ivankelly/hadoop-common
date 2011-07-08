@@ -153,6 +153,8 @@ public class FSEditLog  {
     this.storage = storage;
     metrics = NameNode.getNameNodeMetrics();
     lastPrintTime = now();
+    
+    initJournals();
   }
   
   /**
@@ -179,8 +181,7 @@ public class FSEditLog  {
    * log segment.
    */
   synchronized void open() throws IOException {
-    Preconditions.checkState(state == State.UNINITIALIZED);
-    initJournals();
+    Preconditions.checkState(state == State.BETWEEN_LOG_SEGMENTS);
 
     startLogSegment(getLastWrittenTxId() + 1, true);
     assert state == State.IN_SEGMENT : "Bad state: " + state;
@@ -772,7 +773,7 @@ public class FSEditLog  {
             maxtrans = trans;
           }
         } catch (IOException ioe) {
-          // cant use this journal manager
+          LOG.warn("Cannot count transactions in journal " + fj);
         }
       }
       if (bestfj != null) {
@@ -1070,16 +1071,17 @@ public class FSEditLog  {
    * an exception as it means more transactions exist, we just can't load them.
    *
    * @param fromTxId Transaction id to start from.
+
    * @return A edit log input stream with tranactions fromTxId 
    *         or null if no more exist
    */
-  EditLogInputStream selectInputStream(long fromTxId) throws IOException {
-    FileJournalManager bestjm = null;
+  private EditLogInputStream selectStream(long fromTxId) throws IOException {
+    JournalManager bestjm = null;
     long bestjmNumTxns = 0;
     CorruptionException corruption = null;
 
-    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
-      FileJournalManager candidate = new FileJournalManager(sd);
+    for (JournalAndStream jas : journals) {
+      JournalManager candidate = jas.getManager();
       long candidateNumTxns = 0;
       try {
         candidateNumTxns = candidate.getNumberOfTransactions(fromTxId);
@@ -1105,6 +1107,26 @@ public class FSEditLog  {
     }
 
     return bestjm.getInputStream(fromTxId);
+  }
+
+  /**
+   * @param toTxId The selected streams must allow 
+   */
+  Iterable<EditLogInputStream> selectInputStreams(long fromTxId, long toAtLeastTxId) 
+      throws IOException {
+    List<EditLogInputStream> streams = new ArrayList<EditLogInputStream>();
+    
+    EditLogInputStream stream = selectStream(fromTxId);
+    while (stream != null) {
+      fromTxId = stream.getLastTxId() + 1;
+      streams.add(stream);
+      stream = selectStream(fromTxId);
+    }
+    if (fromTxId <= toAtLeastTxId) {
+      throw new IOException("Expected to be able to load at least " +
+          toAtLeastTxId + " but could not find logs from " + fromTxId);
+    }
+    return streams;
   }
 
   /**
@@ -1170,7 +1192,6 @@ public class FSEditLog  {
       this.stream = stream;
     }
     
-    @VisibleForTesting
     JournalManager getManager() {
       return manager;
     }

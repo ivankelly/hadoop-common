@@ -36,7 +36,7 @@ import static org.apache.hadoop.hdfs.server.namenode.NNStorage.getInProgressEdit
 import static org.apache.hadoop.hdfs.server.namenode.NNStorage.getFinalizedEditsFileName;
 import static org.apache.hadoop.hdfs.server.namenode.NNStorage.getImageFileName;
 
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundFSImage;
+import org.apache.hadoop.hdfs.server.namenode.FSImageStorageInspector.FSImageFile;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -64,13 +64,13 @@ public class TestFSImageStorageInspector {
     
     assertEquals(2, inspector.foundImages.size());
     
-    FoundFSImage latestImage = inspector.getLatestImage();
+    FSImageFile latestImage = inspector.getLatestImage();
     assertEquals(456, latestImage.txId);
     assertSame(mockDir, latestImage.sd);
     assertTrue(inspector.isUpgradeFinalized());
     
     assertEquals(new File("/foo/current/"+getImageFileName(456)), 
-                 inspector.getImageFileForLoading());
+                 inspector.getLatestImage().getFile());
   }
    
   /**
