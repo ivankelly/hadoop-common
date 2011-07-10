@@ -953,7 +953,7 @@ public class TestEditLog extends TestCase {
     assertTrue(files[0].delete());
     
     FSEditLog editlog = new FSEditLog(storage);
-    long startTxId = endGapTxId + 1;
+    long startTxId = 1;
     try {
       Iterable<EditLogInputStream> editStreams 
         = editlog.selectInputStreams(startTxId, 4*TXNS_PER_ROLL);
