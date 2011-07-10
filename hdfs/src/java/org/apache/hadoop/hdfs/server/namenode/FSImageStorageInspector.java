@@ -69,8 +69,6 @@ abstract class FSImageStorageInspector {
     private final File file;
     
     FSImageFile(StorageDirectory sd, File file, long txId) {
-      assert txId >= 0 : "Invalid txid on " + file +": " + txId;
-      
       this.sd = sd;
       this.txId = txId;
       this.file = file;

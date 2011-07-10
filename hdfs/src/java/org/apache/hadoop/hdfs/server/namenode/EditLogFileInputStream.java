@@ -46,11 +46,11 @@ class EditLogFileInputStream extends EditLogInputStream {
   }
 
   public long getFirstTxId() throws IOException {
-    return FSConstants.INVALID_TXID;
+    return firstTxId;
   }
 
   public long getLastTxId() throws IOException {
-    return FSConstants.INVALID_TXID;
+    return lastTxId;
   }
 
   @Override // JournalStream

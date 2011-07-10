@@ -67,6 +67,10 @@ public class FileJournalManager implements JournalManager {
   private static Map<File, EditLogFile> inProgressCache 
     = new ConcurrentHashMap<File, EditLogFile>(0);
 
+  @VisibleForTesting
+  StorageArchiver archiver 
+      = new NNStorageArchivalManager.DeletionStorageArchiver();
+
   public FileJournalManager(StorageDirectory sd) {
     this.sd = sd;
   }
@@ -117,8 +121,6 @@ public class FileJournalManager implements JournalManager {
   @Override
   public void purgeTransactions(long minTxIdToKeep)
       throws IOException {
-    StorageArchiver archiver 
-      = new NNStorageArchivalManager.DeletionStorageArchiver();
 
     File[] files = FileUtil.listFiles(sd.getCurrentDir());
     List<EditLogFile> editLogs = matchEditLogs(files);
@@ -133,10 +135,13 @@ public class FileJournalManager implements JournalManager {
   public EditLogInputStream getInputStream(long fromTxId) throws IOException {
     for (EditLogFile elf : getLogFiles(fromTxId)) {
       if (elf.startTxId == fromTxId) {
+        if (elf.inProgress) {
+          elf = countTransactionsInInprogress(elf.file);
+        }
         if (LOG.isTraceEnabled()) {
           LOG.trace("Returning edit stream reading from " + elf.file);
         }
-        return new EditLogFileInputStream(elf.file);
+        return new EditLogFileInputStream(elf.file, elf.startTxId, elf.endTxId);
       }
     }
 
@@ -338,7 +343,7 @@ public class FileJournalManager implements JournalManager {
     boolean inProgress;
     boolean corrupt = false;
 
-    final static Comparator COMPARE_BY_START_TXID 
+    final static Comparator<EditLogFile> COMPARE_BY_START_TXID 
       = new Comparator<EditLogFile>() {
       public int compare(EditLogFile o1,
                          EditLogFile o2) {

@@ -36,6 +36,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.mockito.Matchers;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
@@ -43,6 +44,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
 
 public class TestNNStorageArchivalManager {
   /**
@@ -169,22 +171,34 @@ public class TestNNStorageArchivalManager {
       Mockito.mock(NNStorageArchivalManager.StorageArchiver.class);
     ArgumentCaptor<File> imagesArchivedCaptor =
       ArgumentCaptor.forClass(File.class);    
+    ArgumentCaptor<File> logsArchivedCaptor =
+      ArgumentCaptor.forClass(File.class);    
 
     // Ask the manager to archive files we don't need any more
     new NNStorageArchivalManager(conf,
-        tc.mockStorage(), tc.mockEditLog(), mockArchiver)
+        tc.mockStorage(), tc.mockEditLog(mockArchiver), mockArchiver)
       .archiveOldStorage();
     
     // Verify that it asked the archiver to remove the correct files
     Mockito.verify(mockArchiver, Mockito.atLeast(0))
-      .archiveImage(imagesArchivedCaptor.capture(), 0);
+      .archiveImage(imagesArchivedCaptor.capture(), Matchers.anyLong());
+    Mockito.verify(mockArchiver, Mockito.atLeast(0))
+      .archiveLog(logsArchivedCaptor.capture(), Matchers.anyLong(), Matchers.anyLong());
 
     // Check images
     Set<String> archivedPaths = Sets.newHashSet();
-    for (File file : imagesArchivedCaptor.getAllValues()) {
-      archivedPaths.add(file.toString());
+    for (File archived : imagesArchivedCaptor.getAllValues()) {
+      archivedPaths.add(archived.toString());
     }    
     Assert.assertEquals(Joiner.on(",").join(tc.expectedArchivedImages),
+        Joiner.on(",").join(archivedPaths));
+
+    // Check images
+    archivedPaths.clear();
+    for (File archived : logsArchivedCaptor.getAllValues()) {
+      archivedPaths.add(archived.toString());
+    }
+    Assert.assertEquals(Joiner.on(",").join(tc.expectedArchivedLogs),
         Joiner.on(",").join(archivedPaths));
   }
   
@@ -243,13 +257,14 @@ public class TestNNStorageArchivalManager {
       return mockStorageForDirs(sds.toArray(new StorageDirectory[0]));
     }
     
-    public FSEditLog mockEditLog() {
+    public FSEditLog mockEditLog(StorageArchiver archiver) {
       final List<JournalManager> jms = Lists.newArrayList();
       for (FakeRoot root : dirRoots.values()) {
         if (!root.type.isOfType(NameNodeDirType.EDITS)) continue;
         
         FileJournalManager fjm = new FileJournalManager(
             root.mockStorageDir());
+        fjm.archiver = archiver;
         jms.add(fjm);
       }
 
@@ -259,9 +274,9 @@ public class TestNNStorageArchivalManager {
         @Override
         public Void answer(InvocationOnMock invocation) throws Throwable {
           Object[] args = invocation.getArguments();
-          assert args.length == 2;
+          assert args.length == 1;
           long txId = (Long) args[0];
-                    
+          
           for (JournalManager jm : jms) {
             jm.purgeTransactions(txId);
           }
