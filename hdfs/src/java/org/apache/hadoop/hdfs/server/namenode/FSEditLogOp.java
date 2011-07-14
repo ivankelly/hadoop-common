@@ -38,13 +38,16 @@ import static org.apache.hadoop.hdfs.server.namenode.FSEditLogOpCodes.*;
 import org.apache.hadoop.security.token.delegation.DelegationKey;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.ArrayWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableFactories;
 import org.apache.hadoop.io.WritableFactory;
+import org.apache.hadoop.hdfs.DeprecatedUTF8;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.EOFException;
 
@@ -69,7 +72,27 @@ public abstract class FSEditLogOp {
   public abstract void readFields(DataInputStream in, int logVersion)
       throws IOException;
 
+  public void writeFields(DataOutputStream out)
+      throws IOException {
+    out.writeByte(opCode.getOpCode());
+  }
+
   static class AddCloseOp extends FSEditLogOp {
+    private static ThreadLocal<AddCloseOp> addInstance 
+      = new ThreadLocal<AddCloseOp>() {
+      @Override 
+      protected AddCloseOp initialValue() { 
+        return new AddCloseOp(OP_ADD); 
+      }
+    };
+    private static ThreadLocal<AddCloseOp> closeInstance 
+      = new ThreadLocal<AddCloseOp>() {
+      @Override 
+      protected AddCloseOp initialValue() { 
+        return new AddCloseOp(OP_CLOSE); 
+      }
+    };
+
     int length;
     String path;
     short replication;
@@ -87,6 +110,82 @@ public abstract class FSEditLogOp {
       assert(opCode == OP_ADD || opCode == OP_CLOSE);
     }
 
+    static AddCloseOp getInstance(FSEditLogOpCodes opCode) {
+      if (opCode == OP_ADD) {
+        return addInstance.get();
+      } else if (opCode == OP_CLOSE) {
+        return closeInstance.get();
+      }
+      assert(opCode == OP_ADD || opCode == OP_CLOSE);
+      return null;
+    }
+
+    AddCloseOp setPath(String path) {
+      this.path = path;
+      return this;
+    }
+
+    AddCloseOp setReplication(short replication) {
+      this.replication = replication;
+      return this;
+    }
+
+    AddCloseOp setModificationTime(long mtime) {
+      this.mtime = mtime;
+      return this;
+    }
+
+    AddCloseOp setAccessTime(long atime) {
+      this.atime = atime;
+      return this;
+    }
+
+    AddCloseOp setBlockSize(long blockSize) {
+      this.blockSize = blockSize;
+      return this;
+    }
+
+    AddCloseOp setBlocks(Block[] blocks) {
+      this.blocks = blocks;
+      return this;
+    }
+
+    AddCloseOp setPermissionStatus(PermissionStatus permissions) {
+      this.permissions = permissions;
+      return this;
+    }
+
+    AddCloseOp setClientName(String clientName) {
+      this.clientName = clientName;
+      return this;
+    }
+
+    AddCloseOp setClientMachine(String clientMachine) {
+      this.clientMachine = clientMachine;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+
+      DeprecatedUTF8 nameReplicationPair[] = new DeprecatedUTF8[] { 
+        new DeprecatedUTF8(path), 
+        toLogReplication(replication),
+        toLogLong(mtime),
+        toLogLong(atime),
+        toLogLong(blockSize)};
+      new ArrayWritable(DeprecatedUTF8.class, nameReplicationPair).write(out);
+      new ArrayWritable(Block.class, blocks).write(out);
+      permissions.write(out);
+
+      if (this.opCode == OP_ADD) {
+        new DeprecatedUTF8(clientName).write(out);
+        new DeprecatedUTF8(clientMachine).write(out);
+      }
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       // versions > 0 support per file replication
@@ -169,6 +268,13 @@ public abstract class FSEditLogOp {
   }
 
   static class SetReplicationOp extends FSEditLogOp {
+    private static ThreadLocal<SetReplicationOp> staticInstance 
+      = new ThreadLocal<SetReplicationOp>() {
+      @Override
+      protected SetReplicationOp initialValue() { 
+        return new SetReplicationOp(); 
+      }
+    };
     String path;
     short replication;
 
@@ -176,6 +282,28 @@ public abstract class FSEditLogOp {
       super(OP_SET_REPLICATION);
     }
 
+    static SetReplicationOp getInstance() {
+      return staticInstance.get();
+    }
+
+    SetReplicationOp setPath(String path) {
+      this.path = path;
+      return this;
+    }
+
+    SetReplicationOp setReplication(short replication) {
+      this.replication = replication;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+      new DeprecatedUTF8(path).write(out);
+      new DeprecatedUTF8(Short.toString(replication)).write(out);
+    }
+    
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.path = FSImageSerialization.readString(in);
@@ -184,6 +312,13 @@ public abstract class FSEditLogOp {
   }
 
   static class ConcatDeleteOp extends FSEditLogOp {
+    private static ThreadLocal<ConcatDeleteOp> staticInstance 
+      = new ThreadLocal<ConcatDeleteOp>() {
+      @Override
+      protected ConcatDeleteOp initialValue() { 
+        return new ConcatDeleteOp(); 
+      }
+    };
     int length;
     String trg;
     String[] srcs;
@@ -193,6 +328,41 @@ public abstract class FSEditLogOp {
       super(OP_CONCAT_DELETE);
     }
 
+    static ConcatDeleteOp getInstance() {
+      return staticInstance.get();
+    }
+
+    ConcatDeleteOp setTarget(String trg) {
+      this.trg = trg;
+      return this;
+    }
+
+    ConcatDeleteOp setSources(String[] srcs) {
+      this.srcs = srcs;
+      return this;
+    }
+
+    ConcatDeleteOp setTimestamp(long timestamp) {
+      this.timestamp = timestamp;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+
+      int size = 1 + srcs.length + 1; // trg, srcs, timestamp
+      DeprecatedUTF8 info[] = new DeprecatedUTF8[size];
+      int idx = 0;
+      info[idx++] = new DeprecatedUTF8(trg);
+      for(int i=0; i<srcs.length; i++) {
+        info[idx++] = new DeprecatedUTF8(srcs[i]);
+      }
+      info[idx] = toLogLong(timestamp);
+      new ArrayWritable(DeprecatedUTF8.class, info).write(out);
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.length = in.readInt();
@@ -211,6 +381,14 @@ public abstract class FSEditLogOp {
   }
 
   static class RenameOldOp extends FSEditLogOp {
+    private static ThreadLocal<RenameOldOp> staticInstance 
+      = new ThreadLocal<RenameOldOp>() {
+      @Override
+      protected RenameOldOp initialValue() { 
+        return new RenameOldOp(); 
+      }
+    };
+
     int length;
     String src;
     String dst;
@@ -220,6 +398,37 @@ public abstract class FSEditLogOp {
       super(OP_RENAME_OLD);
     }
 
+    static RenameOldOp getInstance() {
+      return staticInstance.get();
+    }
+
+    RenameOldOp setSource(String src) {
+      this.src = src;
+      return this;
+    }
+
+    RenameOldOp setDestination(String dst) {
+      this.dst = dst;
+      return this;
+    }
+
+    RenameOldOp setTimestamp(long timestamp) {
+      this.timestamp = timestamp;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+      
+      DeprecatedUTF8 info[] = new DeprecatedUTF8[] { 
+        new DeprecatedUTF8(src),
+        new DeprecatedUTF8(dst),
+        toLogLong(timestamp)};
+      new ArrayWritable(DeprecatedUTF8.class, info).write(out);
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.length = in.readInt();
@@ -234,6 +443,13 @@ public abstract class FSEditLogOp {
   }
 
   static class DeleteOp extends FSEditLogOp {
+    private static ThreadLocal<DeleteOp> staticInstance 
+      = new ThreadLocal<DeleteOp>() {
+      @Override
+      protected DeleteOp initialValue() { 
+        return new DeleteOp(); 
+      }
+    };
     int length;
     String path;
     long timestamp;
@@ -242,9 +458,33 @@ public abstract class FSEditLogOp {
       super(OP_DELETE);
     }
 
+    static DeleteOp getInstance() {
+      return staticInstance.get();
+    }
+
+    DeleteOp setPath(String path) {
+      this.path = path;
+      return this;
+    }
+
+    DeleteOp setTimestamp(long timestamp) {
+      this.timestamp = timestamp;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+
+      DeprecatedUTF8 info[] = new DeprecatedUTF8[] { 
+        new DeprecatedUTF8(path),
+        toLogLong(timestamp)};
+      new ArrayWritable(DeprecatedUTF8.class, info).write(out);
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
-
       this.length = in.readInt();
       if (this.length != 2) {
         throw new IOException("Incorrect data format. "
@@ -256,6 +496,13 @@ public abstract class FSEditLogOp {
   }
 
   static class MkdirOp extends FSEditLogOp {
+    private static ThreadLocal<MkdirOp> staticInstance 
+      = new ThreadLocal<MkdirOp>() {
+      @Override
+      protected MkdirOp initialValue() { 
+        return new MkdirOp(); 
+      }
+    };
     int length;
     String path;
     long timestamp;
@@ -264,7 +511,40 @@ public abstract class FSEditLogOp {
     private MkdirOp() {
       super(OP_MKDIR);
     }
+    
+    static MkdirOp getInstance() {
+      return staticInstance.get();
+    }
 
+    MkdirOp setPath(String path) {
+      this.path = path;
+      return this;
+    }
+
+    MkdirOp setTimestamp(long timestamp) {
+      this.timestamp = timestamp;
+      return this;
+    }
+
+    MkdirOp setPermissionStatus(PermissionStatus permissions) {
+      this.permissions = permissions;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+
+      DeprecatedUTF8 info[] = new DeprecatedUTF8[] {
+        new DeprecatedUTF8(path),
+        toLogLong(timestamp), // mtime
+        toLogLong(timestamp) // atime, unused at this time
+      };
+      new ArrayWritable(DeprecatedUTF8.class, info).write(out);
+      permissions.write(out);
+    }
+    
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
 
@@ -293,12 +573,36 @@ public abstract class FSEditLogOp {
   }
 
   static class SetGenstampOp extends FSEditLogOp {
+    private static ThreadLocal<SetGenstampOp> staticInstance 
+      = new ThreadLocal<SetGenstampOp>() {
+      @Override
+      protected SetGenstampOp initialValue() { 
+        return new SetGenstampOp(); 
+      }
+    };
+
     long genStamp;
 
     private SetGenstampOp() {
       super(OP_SET_GENSTAMP);
     }
 
+    static SetGenstampOp getInstance() {
+      return staticInstance.get();
+    }
+
+    SetGenstampOp setGenerationStamp(long genStamp) {
+      this.genStamp = genStamp;
+      return this;
+    }
+    
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+      new LongWritable(genStamp).write(out);
+    }
+    
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.genStamp = in.readLong();
@@ -306,11 +610,24 @@ public abstract class FSEditLogOp {
   }
 
   static class DatanodeAddOp extends FSEditLogOp {
+    private static ThreadLocal<DatanodeAddOp> staticInstance 
+      = new ThreadLocal<DatanodeAddOp>() {
+      @Override
+      protected DatanodeAddOp initialValue() { 
+        return new DatanodeAddOp(); 
+      }
+    };
+
     @SuppressWarnings("deprecation")
     private DatanodeAddOp() {
       super(OP_DATANODE_ADD);
     }
 
+    static DatanodeAddOp getInstance() {
+      return staticInstance.get();
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       //Datanodes are not persistent any more.
@@ -319,11 +636,24 @@ public abstract class FSEditLogOp {
   }
 
   static class DatanodeRemoveOp extends FSEditLogOp {
+    private static ThreadLocal<DatanodeRemoveOp> staticInstance 
+      = new ThreadLocal<DatanodeRemoveOp>() {
+      @Override
+      protected DatanodeRemoveOp initialValue() { 
+        return new DatanodeRemoveOp(); 
+      }
+    };
+
     @SuppressWarnings("deprecation")
     private DatanodeRemoveOp() {
       super(OP_DATANODE_REMOVE);
     }
 
+    static DatanodeRemoveOp getInstance() {
+      return staticInstance.get();
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       DatanodeID nodeID = new DatanodeID();
@@ -333,6 +663,14 @@ public abstract class FSEditLogOp {
   }
 
   static class SetPermissionsOp extends FSEditLogOp {
+    private static ThreadLocal<SetPermissionsOp> staticInstance 
+      = new ThreadLocal<SetPermissionsOp>() {
+      @Override
+      protected SetPermissionsOp initialValue() { 
+        return new SetPermissionsOp(); 
+      }
+    };
+
     String src;
     FsPermission permissions;
 
@@ -340,6 +678,28 @@ public abstract class FSEditLogOp {
       super(OP_SET_PERMISSIONS);
     }
 
+    static SetPermissionsOp getInstance() {
+      return staticInstance.get();
+    }
+
+    SetPermissionsOp setSource(String src) {
+      this.src = src;
+      return this;
+    }
+
+    SetPermissionsOp setPermissions(FsPermission permissions) {
+      this.permissions = permissions;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+      new DeprecatedUTF8(src).write(out);
+      permissions.write(out);
+     }
+ 
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.src = FSImageSerialization.readString(in);
@@ -348,6 +708,14 @@ public abstract class FSEditLogOp {
   }
 
   static class SetOwnerOp extends FSEditLogOp {
+    private static ThreadLocal<SetOwnerOp> staticInstance 
+      = new ThreadLocal<SetOwnerOp>() {
+      @Override
+      protected SetOwnerOp initialValue() { 
+        return new SetOwnerOp(); 
+      }
+    };
+
     String src;
     String username;
     String groupname;
@@ -356,16 +724,53 @@ public abstract class FSEditLogOp {
       super(OP_SET_OWNER);
     }
 
+    static SetOwnerOp getInstance() {
+      return staticInstance.get();
+    }
+
+    SetOwnerOp setSource(String src) {
+      this.src = src;
+      return this;
+    }
+
+    SetOwnerOp setUser(String username) {
+      this.username = username;
+      return this;
+    }
+
+    SetOwnerOp setGroup(String groupname) {
+      this.groupname = groupname;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+      DeprecatedUTF8 u = new DeprecatedUTF8(username == null? "": username);
+      DeprecatedUTF8 g = new DeprecatedUTF8(groupname == null? "": groupname);
+      new DeprecatedUTF8(src).write(out);
+      u.write(out);
+      g.write(out);
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.src = FSImageSerialization.readString(in);
       this.username = FSImageSerialization.readString_EmptyAsNull(in);
       this.groupname = FSImageSerialization.readString_EmptyAsNull(in);
     }
-
   }
 
   static class SetNSQuotaOp extends FSEditLogOp {
+    private static ThreadLocal<SetNSQuotaOp> staticInstance 
+      = new ThreadLocal<SetNSQuotaOp>() {
+      @Override
+      protected SetNSQuotaOp initialValue() { 
+        return new SetNSQuotaOp(); 
+      }
+    };
+
     String src;
     long nsQuota;
 
@@ -373,6 +778,16 @@ public abstract class FSEditLogOp {
       super(OP_SET_NS_QUOTA);
     }
 
+    static SetNSQuotaOp getInstance() {
+      return staticInstance.get();
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      throw new IOException("Deprecated");      
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.src = FSImageSerialization.readString(in);
@@ -381,12 +796,30 @@ public abstract class FSEditLogOp {
   }
 
   static class ClearNSQuotaOp extends FSEditLogOp {
+    private static ThreadLocal<ClearNSQuotaOp> staticInstance 
+      = new ThreadLocal<ClearNSQuotaOp>() {
+      @Override
+      protected ClearNSQuotaOp initialValue() { 
+        return new ClearNSQuotaOp(); 
+      }
+    };
+
     String src;
 
     private ClearNSQuotaOp() {
       super(OP_CLEAR_NS_QUOTA);
     }
 
+    static ClearNSQuotaOp getInstance() {
+      return staticInstance.get();
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      throw new IOException("Deprecated");      
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.src = FSImageSerialization.readString(in);
@@ -394,6 +827,14 @@ public abstract class FSEditLogOp {
   }
 
   static class SetQuotaOp extends FSEditLogOp {
+    private static ThreadLocal<SetQuotaOp> staticInstance 
+      = new ThreadLocal<SetQuotaOp>() {
+      @Override
+      protected SetQuotaOp initialValue() { 
+        return new SetQuotaOp(); 
+      }
+    };
+
     String src;
     long nsQuota;
     long dsQuota;
@@ -402,6 +843,34 @@ public abstract class FSEditLogOp {
       super(OP_SET_QUOTA);
     }
 
+    static SetQuotaOp getInstance() {
+      return staticInstance.get();
+    }
+
+    SetQuotaOp setSource(String src) {
+      this.src = src;
+      return this;
+    }
+
+    SetQuotaOp setNSQuota(long nsQuota) {
+      this.nsQuota = nsQuota;
+      return this;
+    }
+
+    SetQuotaOp setDSQuota(long dsQuota) {
+      this.dsQuota = dsQuota;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+      new DeprecatedUTF8(src).write(out);
+      new LongWritable(nsQuota).write(out);
+      new LongWritable(dsQuota).write(out);
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.src = FSImageSerialization.readString(in);
@@ -411,6 +880,14 @@ public abstract class FSEditLogOp {
   }
 
   static class TimesOp extends FSEditLogOp {
+    private static ThreadLocal<TimesOp> staticInstance 
+      = new ThreadLocal<TimesOp>() {
+      @Override
+      protected TimesOp initialValue() { 
+        return new TimesOp(); 
+      }
+    };
+
     int length;
     String path;
     long mtime;
@@ -420,6 +897,36 @@ public abstract class FSEditLogOp {
       super(OP_TIMES);
     }
 
+    static TimesOp getInstance() {
+      return staticInstance.get();
+    }
+
+    TimesOp setPath(String path) {
+      this.path = path;
+      return this;
+    }
+
+    TimesOp setModificationTime(long mtime) {
+      this.mtime = mtime;
+      return this;
+    }
+
+    TimesOp setAccessTime(long atime) {
+      this.atime = atime;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+      DeprecatedUTF8 info[] = new DeprecatedUTF8[] { 
+        new DeprecatedUTF8(path),
+        toLogLong(mtime),
+        toLogLong(atime)};
+      new ArrayWritable(DeprecatedUTF8.class, info).write(out);
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.length = in.readInt();
@@ -434,6 +941,13 @@ public abstract class FSEditLogOp {
   }
 
   static class SymlinkOp extends FSEditLogOp {
+    private static ThreadLocal<SymlinkOp> staticInstance 
+      = new ThreadLocal<SymlinkOp>() {
+      @Override
+      protected SymlinkOp initialValue() { 
+        return new SymlinkOp(); 
+      }
+    };
     int length;
     String path;
     String value;
@@ -445,6 +959,49 @@ public abstract class FSEditLogOp {
       super(OP_SYMLINK);
     }
 
+    static SymlinkOp getInstance() {
+      return staticInstance.get();
+    }
+
+    SymlinkOp setPath(String path) {
+      this.path = path;
+      return this;
+    }
+
+    SymlinkOp setValue(String value) {
+      this.value = value;
+      return this;
+    }
+
+    SymlinkOp setModificationTime(long mtime) {
+      this.mtime = mtime;
+      return this;
+    }
+
+    SymlinkOp setAccessTime(long atime) {
+      this.atime = atime;
+      return this;
+    }
+
+    SymlinkOp setPermissionStatus(PermissionStatus permissionStatus) {
+      this.permissionStatus = permissionStatus;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+
+      DeprecatedUTF8 info[] = new DeprecatedUTF8[] { 
+        new DeprecatedUTF8(path),
+        new DeprecatedUTF8(value),
+        toLogLong(mtime),
+        toLogLong(atime)};
+      new ArrayWritable(DeprecatedUTF8.class, info).write(out);
+      permissionStatus.write(out);
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
 
@@ -462,6 +1019,13 @@ public abstract class FSEditLogOp {
   }
 
   static class RenameOp extends FSEditLogOp {
+    private static ThreadLocal<RenameOp> staticInstance 
+      = new ThreadLocal<RenameOp>() {
+      @Override
+      protected RenameOp initialValue() { 
+        return new RenameOp(); 
+      }
+    };
     int length;
     String src;
     String dst;
@@ -472,6 +1036,43 @@ public abstract class FSEditLogOp {
       super(OP_RENAME);
     }
 
+    static RenameOp getInstance() {
+      return staticInstance.get();
+    }
+
+    RenameOp setSource(String src) {
+      this.src = src;
+      return this;
+    }
+
+    RenameOp setDestination(String dst) {
+      this.dst = dst;
+      return this;
+    }
+    
+    RenameOp setTimestamp(long timestamp) {
+      this.timestamp = timestamp;
+      return this;
+    }
+    
+    RenameOp setOptions(Rename[] options) {
+      this.options = options;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+
+      DeprecatedUTF8 info[] = new DeprecatedUTF8[] { 
+        new DeprecatedUTF8(src),
+        new DeprecatedUTF8(dst),
+        toLogLong(timestamp)};
+      new ArrayWritable(DeprecatedUTF8.class, info).write(out);
+      toBytesWritable(options).write(out);
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.length = in.readInt();
@@ -497,9 +1098,25 @@ public abstract class FSEditLogOp {
       }
       return options;
     }
+
+    static BytesWritable toBytesWritable(Rename... options) {
+      byte[] bytes = new byte[options.length];
+      for (int i = 0; i < options.length; i++) {
+        bytes[i] = options[i].value();
+      }
+      return new BytesWritable(bytes);
+    }
   }
 
   static class ReassignLeaseOp extends FSEditLogOp {
+    private static ThreadLocal<ReassignLeaseOp> staticInstance 
+      = new ThreadLocal<ReassignLeaseOp>() {
+      @Override
+      protected ReassignLeaseOp initialValue() { 
+        return new ReassignLeaseOp(); 
+      }
+    };
+
     String leaseHolder;
     String path;
     String newHolder;
@@ -507,7 +1124,36 @@ public abstract class FSEditLogOp {
     private ReassignLeaseOp() {
       super(OP_REASSIGN_LEASE);
     }
-    
+
+    static ReassignLeaseOp getInstance() {
+      return staticInstance.get();
+    }
+
+    ReassignLeaseOp setLeaseHolder(String leaseHolder) {
+      this.leaseHolder = leaseHolder;
+      return this;
+    }
+
+    ReassignLeaseOp setPath(String path) {
+      this.path = path;
+      return this;
+    }
+
+    ReassignLeaseOp setNewHolder(String newHolder) {
+      this.newHolder = newHolder;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+
+      new DeprecatedUTF8(leaseHolder).write(out);
+      new DeprecatedUTF8(path).write(out);
+      new DeprecatedUTF8(newHolder).write(out);
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.leaseHolder = FSImageSerialization.readString(in);
@@ -517,6 +1163,13 @@ public abstract class FSEditLogOp {
   }
 
   static class GetDelegationTokenOp extends FSEditLogOp {
+    private static ThreadLocal<GetDelegationTokenOp> staticInstance 
+      = new ThreadLocal<GetDelegationTokenOp>() {
+      @Override
+      protected GetDelegationTokenOp initialValue() { 
+        return new GetDelegationTokenOp(); 
+      }
+    };
     DelegationTokenIdentifier token;
     long expiryTime;
 
@@ -524,6 +1177,29 @@ public abstract class FSEditLogOp {
       super(OP_GET_DELEGATION_TOKEN);
     }
 
+    static GetDelegationTokenOp getInstance() {
+      return staticInstance.get();
+    }
+
+    GetDelegationTokenOp setDelegationTokenIdentifier(
+        DelegationTokenIdentifier token) {
+      this.token = token;
+      return this;
+    }
+
+    GetDelegationTokenOp setExpiryTime(long expiryTime) {
+      this.expiryTime = expiryTime;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+      token.write(out);
+      toLogLong(expiryTime).write(out);
+    }
+
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.token = new DelegationTokenIdentifier();
@@ -533,11 +1209,41 @@ public abstract class FSEditLogOp {
   }
 
   static class RenewDelegationTokenOp extends FSEditLogOp {
+    private static ThreadLocal<RenewDelegationTokenOp> staticInstance 
+      = new ThreadLocal<RenewDelegationTokenOp>() {
+      @Override
+      protected RenewDelegationTokenOp initialValue() { 
+        return new RenewDelegationTokenOp(); 
+      }
+    };
+
     DelegationTokenIdentifier token;
     long expiryTime;
 
     private RenewDelegationTokenOp() {
       super(OP_RENEW_DELEGATION_TOKEN);
+    }
+
+    static RenewDelegationTokenOp getInstance() {
+      return staticInstance.get();
+    }
+
+    RenewDelegationTokenOp setDelegationTokenIdentifier(
+        DelegationTokenIdentifier token) {
+      this.token = token;
+      return this;
+    }
+
+    RenewDelegationTokenOp setExpiryTime(long expiryTime) {
+      this.expiryTime = expiryTime;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+      token.write(out);
+      toLogLong(expiryTime).write(out);
     }
 
     public void readFields(DataInputStream in, int logVersion)
@@ -549,10 +1255,34 @@ public abstract class FSEditLogOp {
   }
 
   static class CancelDelegationTokenOp extends FSEditLogOp {
+    private static ThreadLocal<CancelDelegationTokenOp> staticInstance 
+      = new ThreadLocal<CancelDelegationTokenOp>() {
+      @Override
+      protected CancelDelegationTokenOp initialValue() { 
+        return new CancelDelegationTokenOp(); 
+      }
+    };
+    
     DelegationTokenIdentifier token;
 
     private CancelDelegationTokenOp() {
       super(OP_CANCEL_DELEGATION_TOKEN);
+    }
+
+    static CancelDelegationTokenOp getInstance() {
+      return staticInstance.get();
+    }
+
+    CancelDelegationTokenOp setDelegationTokenIdentifier(
+        DelegationTokenIdentifier token) {
+      this.token = token;
+      return this;
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+      token.write(out);
     }
 
     public void readFields(DataInputStream in, int logVersion)
@@ -563,10 +1293,32 @@ public abstract class FSEditLogOp {
   }
 
   static class UpdateMasterKeyOp extends FSEditLogOp {
+    private static ThreadLocal<UpdateMasterKeyOp> staticInstance 
+      = new ThreadLocal<UpdateMasterKeyOp>() {
+      @Override
+      protected UpdateMasterKeyOp initialValue() { 
+        return new UpdateMasterKeyOp(); 
+      }
+    };
     DelegationKey key;
 
     private UpdateMasterKeyOp() {
       super(OP_UPDATE_MASTER_KEY);
+    }
+
+    static UpdateMasterKeyOp getInstance() {
+      return staticInstance.get();
+    }
+
+    UpdateMasterKeyOp setDelegationKey(DelegationKey key) {
+      this.key = key;
+      return this;
+    }
+    
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+      key.write(out);
     }
 
     public void readFields(DataInputStream in, int logVersion)
@@ -582,6 +1334,14 @@ public abstract class FSEditLogOp {
 
   static private long readLong(DataInputStream in) throws IOException {
     return Long.parseLong(FSImageSerialization.readString(in));
+  }
+
+  static private DeprecatedUTF8 toLogReplication(short replication) {
+    return new DeprecatedUTF8(Short.toString(replication));
+  }
+  
+  static private DeprecatedUTF8 toLogLong(long timestamp) {
+    return new DeprecatedUTF8(Long.toString(timestamp));
   }
 
   /**
@@ -652,30 +1412,30 @@ public abstract class FSEditLogOp {
       this.checksum = checksum;
       opInstances = new EnumMap<FSEditLogOpCodes, FSEditLogOp>(
           FSEditLogOpCodes.class);
-      opInstances.put(OP_ADD, new AddCloseOp(OP_ADD));
-      opInstances.put(OP_CLOSE, new AddCloseOp(OP_CLOSE));
-      opInstances.put(OP_SET_REPLICATION, new SetReplicationOp());
-      opInstances.put(OP_CONCAT_DELETE, new ConcatDeleteOp());
-      opInstances.put(OP_RENAME_OLD, new RenameOldOp());
-      opInstances.put(OP_DELETE, new DeleteOp());
-      opInstances.put(OP_MKDIR, new MkdirOp());
-      opInstances.put(OP_SET_GENSTAMP, new SetGenstampOp());
-      opInstances.put(OP_DATANODE_ADD, new DatanodeAddOp());
-      opInstances.put(OP_DATANODE_REMOVE, new DatanodeRemoveOp());
-      opInstances.put(OP_SET_PERMISSIONS, new SetPermissionsOp());
-      opInstances.put(OP_SET_OWNER, new SetOwnerOp());
-      opInstances.put(OP_SET_NS_QUOTA, new SetNSQuotaOp());
-      opInstances.put(OP_CLEAR_NS_QUOTA, new ClearNSQuotaOp());
-      opInstances.put(OP_SET_QUOTA, new SetQuotaOp());
-      opInstances.put(OP_TIMES, new TimesOp());
-      opInstances.put(OP_SYMLINK, new SymlinkOp());
-      opInstances.put(OP_RENAME, new RenameOp());
-      opInstances.put(OP_REASSIGN_LEASE, new ReassignLeaseOp());
-      opInstances.put(OP_GET_DELEGATION_TOKEN, new GetDelegationTokenOp());
-      opInstances.put(OP_RENEW_DELEGATION_TOKEN, new RenewDelegationTokenOp());
+      opInstances.put(OP_ADD, AddCloseOp.getInstance(OP_ADD));
+      opInstances.put(OP_CLOSE, AddCloseOp.getInstance(OP_CLOSE));
+      opInstances.put(OP_SET_REPLICATION, SetReplicationOp.getInstance());
+      opInstances.put(OP_CONCAT_DELETE, ConcatDeleteOp.getInstance());
+      opInstances.put(OP_RENAME_OLD, RenameOldOp.getInstance());
+      opInstances.put(OP_DELETE, DeleteOp.getInstance());
+      opInstances.put(OP_MKDIR, MkdirOp.getInstance());
+      opInstances.put(OP_SET_GENSTAMP, SetGenstampOp.getInstance());
+      opInstances.put(OP_DATANODE_ADD, DatanodeAddOp.getInstance());
+      opInstances.put(OP_DATANODE_REMOVE, DatanodeRemoveOp.getInstance());
+      opInstances.put(OP_SET_PERMISSIONS, SetPermissionsOp.getInstance());
+      opInstances.put(OP_SET_OWNER, SetOwnerOp.getInstance());
+      opInstances.put(OP_SET_NS_QUOTA, SetNSQuotaOp.getInstance());
+      opInstances.put(OP_CLEAR_NS_QUOTA, ClearNSQuotaOp.getInstance());
+      opInstances.put(OP_SET_QUOTA, SetQuotaOp.getInstance());
+      opInstances.put(OP_TIMES, TimesOp.getInstance());
+      opInstances.put(OP_SYMLINK, SymlinkOp.getInstance());
+      opInstances.put(OP_RENAME, RenameOp.getInstance());
+      opInstances.put(OP_REASSIGN_LEASE, ReassignLeaseOp.getInstance());
+      opInstances.put(OP_GET_DELEGATION_TOKEN, GetDelegationTokenOp.getInstance());
+      opInstances.put(OP_RENEW_DELEGATION_TOKEN, RenewDelegationTokenOp.getInstance());
       opInstances.put(OP_CANCEL_DELEGATION_TOKEN,
-                      new CancelDelegationTokenOp());
-      opInstances.put(OP_UPDATE_MASTER_KEY, new UpdateMasterKeyOp());
+                      CancelDelegationTokenOp.getInstance());
+      opInstances.put(OP_UPDATE_MASTER_KEY, UpdateMasterKeyOp.getInstance());
     }
 
     /**

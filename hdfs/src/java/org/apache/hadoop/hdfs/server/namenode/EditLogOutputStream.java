@@ -19,8 +19,12 @@ package org.apache.hadoop.hdfs.server.namenode;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.DataOutputStream;
 
 import static org.apache.hadoop.hdfs.server.common.Util.now;
+import org.apache.hadoop.util.PureJavaCrc32;
+import java.util.zip.Checksum;
+import java.util.zip.CheckedOutputStream;
 import org.apache.hadoop.io.Writable;
 
 /**
@@ -32,6 +36,8 @@ implements JournalStream {
   // these are statistics counters
   private long numSync;        // number of sync(s) to disk
   private long totalTimeSync;  // total time to sync
+  private DataOutputStream dataStream = null;
+  private Checksum checksum = null;
 
   EditLogOutputStream() throws IOException {
     numSync = totalTimeSync = 0;
@@ -124,5 +130,28 @@ implements JournalStream {
   @Override // Object
   public String toString() {
     return getName();
+  }
+
+  public Checksum getChecksum() {
+    if (checksum == null) {
+      synchronized(this) {
+        if (checksum == null) {
+          checksum = new PureJavaCrc32();
+        }
+      }
+    }
+    return checksum;
+  }
+
+  public DataOutputStream getDataOutputStream() {
+    if (dataStream == null) {
+      synchronized(this) {
+        if (dataStream == null) {
+          dataStream = new DataOutputStream(
+              new CheckedOutputStream(this, getChecksum()));
+        }
+      }
+    } 
+    return dataStream;
   }
 }
