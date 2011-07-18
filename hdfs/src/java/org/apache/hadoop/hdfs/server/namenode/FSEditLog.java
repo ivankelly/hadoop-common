@@ -332,11 +332,7 @@ public class FSEditLog implements NNStorageListener {
         if(!eStream.isOperationSupported(op.opCode.getOpCode()))
           continue;
         try {
-          Checksum checksum = eStream.getChecksum();
-          checksum.reset();
-          DataOutputStream dataStream = eStream.getDataOutputStream();
-          op.writeFields(dataStream);
-          dataStream.writeInt((int)checksum.getValue());
+          eStream.write(op);
         } catch (IOException ie) {
           LOG.error("logEdit: removing "+ eStream.getName(), ie);
           if(errorStreams == null)
@@ -1038,7 +1034,7 @@ public class FSEditLog implements NNStorageListener {
       boStream = new EditLogBackupOutputStream(bnReg, nnReg);
       editStreams.add(boStream);
     }
-    // logEdit(OP_JSPOOL_START, (Writable[])null);IKFIXME
+    logEdit(JSpoolStartOp.getInstance());
   }
 
   /**
@@ -1052,7 +1048,7 @@ public class FSEditLog implements NNStorageListener {
     long start = now();
     for(EditLogOutputStream eStream : editStreams) {
       try {
-        eStream.write(data, 0, length);
+        eStream.writeRaw(data, 0, length);
       } catch (IOException ie) {
         LOG.warn("Error in editStream " + eStream.getName(), ie);
         if(errorStreams == null)
@@ -1135,8 +1131,9 @@ public class FSEditLog implements NNStorageListener {
 
   void incrementCheckpointTime() {
     storage.incrementCheckpointTime();
-    Writable[] args = {new LongWritable(storage.getCheckpointTime())};
-    // logEdit(OP_CHECKPOINT_TIME, args); IKFIXME
+    CheckpointTimeOp op = CheckpointTimeOp.getInstance()
+      .setCheckpointTime(storage.getCheckpointTime());
+    logEdit(op); 
   }
 
   synchronized void releaseBackupStream(NamenodeRegistration registration) {

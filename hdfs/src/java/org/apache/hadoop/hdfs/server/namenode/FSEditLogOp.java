@@ -1246,6 +1246,7 @@ public abstract class FSEditLogOp {
       toLogLong(expiryTime).write(out);
     }
 
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.token = new DelegationTokenIdentifier();
@@ -1285,6 +1286,7 @@ public abstract class FSEditLogOp {
       token.write(out);
     }
 
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.token = new DelegationTokenIdentifier();
@@ -1321,13 +1323,110 @@ public abstract class FSEditLogOp {
       key.write(out);
     }
 
+    @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
       this.key = new DelegationKey();
       this.key.readFields(in);
     }
   }
-  
+
+  static class InvalidOp extends FSEditLogOp {
+    private static ThreadLocal<InvalidOp> staticInstance 
+      = new ThreadLocal<InvalidOp>() {
+      @Override
+      protected InvalidOp initialValue() { 
+        return new InvalidOp(); 
+      }
+    };
+
+    private InvalidOp() {
+      super(OP_INVALID);
+    }
+
+    static InvalidOp getInstance() {
+      return staticInstance.get();
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+    }
+    
+    @Override
+    public void readFields(DataInputStream in, int logVersion)
+        throws IOException {
+      // nothing to read
+    }
+  }
+
+  static class JSpoolStartOp extends FSEditLogOp {
+    private static ThreadLocal<JSpoolStartOp> staticInstance 
+      = new ThreadLocal<JSpoolStartOp>() {
+      @Override
+      protected JSpoolStartOp initialValue() { 
+        return new JSpoolStartOp(); 
+      }
+    };
+
+    private JSpoolStartOp() {
+      super(OP_JSPOOL_START);
+    }
+
+    static JSpoolStartOp getInstance() {
+      return staticInstance.get();
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+    }
+    
+    @Override
+    public void readFields(DataInputStream in, int logVersion)
+        throws IOException {
+      throw new IOException("Should never read jspool op from a stream"
+                            + "op code = " + opCode);
+    }
+  }
+
+  static class CheckpointTimeOp extends FSEditLogOp {
+    private static ThreadLocal<CheckpointTimeOp> staticInstance 
+      = new ThreadLocal<CheckpointTimeOp>() {
+      @Override
+      protected CheckpointTimeOp initialValue() { 
+        return new CheckpointTimeOp(); 
+      }
+    };
+    long checkpointTime;
+
+    private CheckpointTimeOp() {
+      super(OP_CHECKPOINT_TIME);            
+    }
+    
+    CheckpointTimeOp setCheckpointTime(long time) {
+      this.checkpointTime = time;
+      return this;
+    }
+
+    static CheckpointTimeOp getInstance() {
+      return staticInstance.get();
+    }
+
+    @Override 
+    public void writeFields(DataOutputStream out) throws IOException {
+      super.writeFields(out);
+      new LongWritable(checkpointTime).write(out);
+    }
+    
+    @Override
+    public void readFields(DataInputStream in, int logVersion)
+        throws IOException {
+      throw new IOException("Should never read jspool op from a stream"
+                            + "op code = " + opCode);
+    }
+  }
+
   static private short readShort(DataInputStream in) throws IOException {
     return Short.parseShort(FSImageSerialization.readString(in));
   }

@@ -18,7 +18,6 @@
 package org.apache.hadoop.hdfs.server.namenode;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.io.DataOutputStream;
 
 import static org.apache.hadoop.hdfs.server.common.Util.now;
@@ -31,8 +30,7 @@ import org.apache.hadoop.io.Writable;
  * A generic abstract class to support journaling of edits logs into 
  * a persistent storage.
  */
-abstract class EditLogOutputStream extends OutputStream 
-implements JournalStream {
+abstract class EditLogOutputStream implements JournalStream {
   // these are statistics counters
   private long numSync;        // number of sync(s) to disk
   private long totalTimeSync;  // total time to sync
@@ -43,9 +41,6 @@ implements JournalStream {
     numSync = totalTimeSync = 0;
   }
 
-  /** {@inheritDoc} */
-  abstract public void write(int b) throws IOException;
-
   /**
    * Write edits log record into the stream.
    * The record is represented by operation name and
@@ -55,7 +50,10 @@ implements JournalStream {
    * @param writables array of Writable arguments
    * @throws IOException
    */
-  abstract void write(byte op, Writable ... writables) throws IOException;
+  abstract void write(FSEditLogOp op) throws IOException;
+  
+  /** IKTODO javadoc */
+  abstract void writeRaw(byte[] bytes, int offset, int length) throws IOException;
 
   /**
    * Create and initialize underlying persistent edits log storage.
@@ -131,7 +129,7 @@ implements JournalStream {
   public String toString() {
     return getName();
   }
-
+  /*
   public Checksum getChecksum() {
     if (checksum == null) {
       synchronized(this) {
@@ -143,7 +141,7 @@ implements JournalStream {
     return checksum;
   }
 
-  public DataOutputStream getDataOutputStream() {
+  protected DataOutputStream getDataOutputStream() {
     if (dataStream == null) {
       synchronized(this) {
         if (dataStream == null) {
@@ -153,5 +151,5 @@ implements JournalStream {
       }
     } 
     return dataStream;
-  }
+    }*/
 }

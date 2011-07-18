@@ -88,18 +88,11 @@ class EditLogFileOutputStream extends EditLogOutputStream {
 
   /** {@inheritDoc} */
   @Override
-  public void write(int b) throws IOException {
-    bufCurrent.write(b);
-  }
-
-  /** {@inheritDoc} */
-  @Override
-  void write(byte op, Writable... writables) throws IOException {
+  void write(FSEditLogOp op) throws IOException {
     int start = bufCurrent.getLength();
-    write(op);
-    for (Writable w : writables) {
-      w.write(bufCurrent);
-    }
+    
+    op.writeFields(bufCurrent);
+
     // write transaction checksum
     int end = bufCurrent.getLength();
     Checksum checksum = FSEditLog.getChecksum();
@@ -168,7 +161,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
   @Override
   void setReadyToFlush() throws IOException {
     assert bufReady.size() == 0 : "previous data is not flushed yet";
-    write(FSEditLogOpCodes.OP_INVALID.getOpCode()); // insert eof marker
+    bufCurrent.write(FSEditLogOpCodes.OP_INVALID.getOpCode()); // insert eof marker
     DataOutputBuffer tmp = bufReady;
     bufReady = bufCurrent;
     bufCurrent = tmp;

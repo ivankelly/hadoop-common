@@ -45,27 +45,9 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
   private NamenodeProtocol backupNode;          // RPC proxy to backup node
   private NamenodeRegistration bnRegistration;  // backup node registration
   private NamenodeRegistration nnRegistration;  // active node registration
-  private ArrayList<JournalRecord> bufCurrent;  // current buffer for writing
-  private ArrayList<JournalRecord> bufReady;    // buffer ready for flushing
+  private ArrayList<FSEditLogOp> bufCurrent;  // current buffer for writing
+  private ArrayList<FSEditLogOp> bufReady;    // buffer ready for flushing
   private DataOutputBuffer out;     // serialized output sent to backup node
-
-  static class JournalRecord {
-    byte op;
-    Writable[] args;
-
-    JournalRecord(byte op, Writable ... writables) {
-      this.op = op;
-      this.args = writables;
-    }
-
-    void write(DataOutputStream out) throws IOException {
-      out.write(op);
-      if(args == null)
-        return;
-      for(Writable w : args)
-        w.write(out);
-    }
-  }
 
   EditLogBackupOutputStream(NamenodeRegistration bnReg, // backup node
                             NamenodeRegistration nnReg) // active name-node
@@ -84,8 +66,8 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
       Storage.LOG.error("Error connecting to: " + bnAddress, e);
       throw e;
     }
-    this.bufCurrent = new ArrayList<JournalRecord>();
-    this.bufReady = new ArrayList<JournalRecord>();
+    this.bufCurrent = new ArrayList<FSEditLogOp>();
+    this.bufReady = new ArrayList<FSEditLogOp>();
     this.out = new DataOutputBuffer(DEFAULT_BUFFER_SIZE);
   }
 
@@ -100,13 +82,13 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
   }
 
   @Override // EditLogOutputStream
-  public void write(int b) throws IOException {
-    throw new IOException("Not implemented");
+  void write(FSEditLogOp op) throws IOException {
+    bufCurrent.add(op);
   }
 
-  @Override // EditLogOutputStream
-  void write(byte op, Writable ... writables) throws IOException {
-    bufCurrent.add(new JournalRecord(op, writables));
+  @Override
+  void writeRaw(byte[] bytes, int offset, int length) throws IOException {
+    throw new IOException("Not supported");
   }
 
   /**
@@ -134,7 +116,7 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
   @Override // EditLogOutputStream
   void setReadyToFlush() throws IOException {
     assert bufReady.size() == 0 : "previous data is not flushed yet";
-    ArrayList<JournalRecord>  tmp = bufReady;
+    ArrayList<FSEditLogOp>  tmp = bufReady;
     bufReady = bufCurrent;
     bufCurrent = tmp;
   }
@@ -144,12 +126,13 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
     assert out.size() == 0 : "Output buffer is not empty";
     int bufReadySize = bufReady.size();
     for(int idx = 0; idx < bufReadySize; idx++) {
-      JournalRecord jRec = null;
+      FSEditLogOp jRec = null;
       for(; idx < bufReadySize; idx++) {
         jRec = bufReady.get(idx);
-        if(jRec.op >= FSEditLogOpCodes.OP_JSPOOL_START.getOpCode())
+        if(jRec.opCode.getOpCode() 
+           >= FSEditLogOpCodes.OP_JSPOOL_START.getOpCode())
           break;  // special operation should be sent in a separate call to BN
-        jRec.write(out);
+        jRec.writeFields(out);
       }
       if(out.size() > 0)
         send(NamenodeProtocol.JA_JOURNAL);
@@ -157,8 +140,8 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
         break;
       // operation like start journal spool or increment checkpoint time
       // is a separate call to BN
-      jRec.write(out);
-      send(jRec.op);
+      jRec.writeFields(out);
+      send(jRec.opCode.getOpCode());
     }
     bufReady.clear();         // erase all data in the buffer
     out.reset();              // reset buffer to the start position
