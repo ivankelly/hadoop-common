@@ -37,14 +37,11 @@ import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.NNStorageArchivalManager.StorageArchiver;
 import org.apache.hadoop.hdfs.server.namenode.JournalManager.CorruptionException;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
-import org.apache.hadoop.hdfs.protocol.LayoutVersion;
-import org.apache.hadoop.hdfs.protocol.LayoutVersion.Feature;
 import org.apache.hadoop.io.ArrayWritable;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.LongWritable;
@@ -508,7 +505,7 @@ public class FSEditLog  {
     buf.append(numTransactions);
     buf.append(" Total time for transactions(ms): ");
     buf.append(totalTimeTransactions);
-    buf.append("Number of transactions batched in Syncs: ");
+    buf.append(" Number of transactions batched in Syncs: ");
     buf.append(numTransactionsBatchedInSync);
     buf.append(" Number of syncs: ");
     for (JournalAndStream jas : journals) {
@@ -752,40 +749,40 @@ public class FSEditLog  {
    */
   public RemoteEditLogManifest getEditLogManifest(long fromTxId)
       throws IOException {
-    FileJournalManager bestfj = null;
-    long maxtrans = 0;
-    
     List<RemoteEditLog> logs = new ArrayList<RemoteEditLog>();
     List<FileJournalManager> fjs = new ArrayList<FileJournalManager>();
     for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
       fjs.add(new FileJournalManager(sd));
     }
 
+    RemoteEditLog bestlog = null;
     do {
-      bestfj = null;
-      maxtrans = 0;
+      bestlog = null;
       
       for (FileJournalManager fj : fjs) {
         try {
-          long trans = fj.getNumberOfFinalizedTransactions(fromTxId);
-          if (trans > maxtrans) {
-            bestfj = fj;
-            maxtrans = trans;
+          RemoteEditLog candidate = fj.getRemoteEditLog(fromTxId); 
+          if (candidate == null) {
+            continue;
+          }
+
+          if (bestlog == null) {
+            bestlog = candidate;
+          } else if (candidate.getStartTxId() < bestlog.getStartTxId()) {
+            bestlog = candidate;
+          } else if (candidate.getStartTxId() == bestlog.getStartTxId()
+                     && candidate.getEndTxId() > bestlog.getEndTxId()) {
+            bestlog = candidate;
           }
         } catch (IOException ioe) {
           LOG.warn("Cannot count transactions in journal " + fj);
         }
       }
-      if (bestfj != null) {
-        RemoteEditLog log = bestfj.getRemoteEditLog(fromTxId);
-        logs.add(log);
-        fromTxId = log.getEndTxId() + 1;
+      if (bestlog != null) {
+        logs.add(bestlog);
+        fromTxId = bestlog.getEndTxId() + 1;
       } 
-    } while (bestfj != null);
-    
-    if (logs.size() == 0) {
-      throw new IOException("There are no logs to transfer");
-    }
+    } while (bestlog != null);
 
     return new RemoteEditLogManifest(logs);
   }
@@ -1195,30 +1192,5 @@ public class FSEditLog  {
     JournalManager getManager() {
       return manager;
     }
-
-    public EditLogInputStream getInProgressInputStream() throws IOException {
-      return manager.getInProgressInputStream(segmentStartsAtTxId);
-    }
-  }
-
-  /**
-   * @return an EditLogInputStream that reads from the same log that
-   * the edit log is currently writing. This is used from the BackupNode
-   * during edits synchronization.
-   * @throws IOException if no valid logs are available.
-   */
-  synchronized EditLogInputStream getInProgressFileInputStream()
-      throws IOException {
-    for (JournalAndStream jas : journals) {
-      if (!jas.isActive()) continue;
-      try {
-        EditLogInputStream in = jas.getInProgressInputStream();
-        if (in != null) return in;
-      } catch (IOException ioe) {
-        LOG.warn("Unable to get the in-progress input stream from " + jas,
-            ioe);
-      }
-    }
-    throw new IOException("No in-progress stream provided edits");
   }
 }

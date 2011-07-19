@@ -32,11 +32,9 @@ import org.apache.hadoop.hdfs.server.namenode.JournalManager.CorruptionException
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import java.util.List;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
@@ -64,7 +62,7 @@ public class FileJournalManager implements JournalManager {
       NameNodeFile.EDITS_INPROGRESS.getName() + "_(\\d+)");
 
   // Avoid counting the file more than once.
-  private static Map<File, EditLogFile> inProgressCache 
+  private static ConcurrentHashMap<File, EditLogFile> inProgressCache 
     = new ConcurrentHashMap<File, EditLogFile>(0);
 
   @VisibleForTesting
@@ -96,10 +94,10 @@ public class FileJournalManager implements JournalManager {
     LOG.debug("Finalizing edits file " + inProgressFile + " -> " + dstFile);
 
     Preconditions.checkState(!dstFile.exists(),
-        "Can't finalize edits file " + inprogressFile + " since finalized file " +
+        "Can't finalize edits file " + inProgressFile + " since finalized file " +
         "already exists");
-    if (!inprogressFile.renameTo(dstFile)) {
-      throw new IOException("Unable to finalize edits file " + inprogressFile);
+    if (!inProgressFile.renameTo(dstFile)) {
+      throw new IOException("Unable to finalize edits file " + inProgressFile);
     }
   }
 
@@ -149,8 +147,9 @@ public class FileJournalManager implements JournalManager {
                           + " as first first txid");
   }
 
-  private long getNumberOfTransactionsInternal(long fromTxId, boolean includeInProgress)
-      throws IOException {
+  @Override
+  public long getNumberOfTransactions(long fromTxId) 
+      throws IOException, CorruptionException {
     long numTxns = 0L;
 
     for (EditLogFile elf : getLogFiles(fromTxId)) {
@@ -161,13 +160,9 @@ public class FileJournalManager implements JournalManager {
         LOG.warn("Gap in transactions "
                  + fromTxId + " - " + (elf.startTxId - 1));
       } else if (fromTxId == elf.startTxId) {
-        if (elf.inProgress && includeInProgress) {
+        if (elf.inProgress) {
           elf = countTransactionsInInprogress(elf.file);
-        } else {
-          if (elf.inProgress) {
-            break;
-          }
-        }
+        } 
 
         if (elf.corrupt) {
           break;
@@ -186,9 +181,10 @@ public class FileJournalManager implements JournalManager {
                 + " txns from " + fromTxId);
     }
 
-    if (numTxns == 0 && fromTxId <= getMaxLoadableTransaction()) {
+    long max = getMaxLoadableTransaction();
+    if (numTxns == 0 && fromTxId <= max) { 
       String error = String.format("Gap in transactions, max txnid is %d"
-          + ", 0 txns from %d", getMaxLoadableTransaction(), fromTxId);
+          + ", 0 txns from %d", max, fromTxId);
       LOG.error(error);
       throw new CorruptionException(error);
     }
@@ -196,7 +192,7 @@ public class FileJournalManager implements JournalManager {
     return numTxns;
   }
 
-  private long getMaxLoadableTransaction() 
+  private long getMaxLoadableTransaction()
       throws IOException {
     long max = 0L;
     for (EditLogFile elf : getLogFiles(0)) {
@@ -213,16 +209,6 @@ public class FileJournalManager implements JournalManager {
     return max;
   }
   
-  @Override
-  public long getNumberOfTransactions(long fromTxId) throws IOException {
-    return getNumberOfTransactionsInternal(fromTxId, true);
-  }
-
-  public long getNumberOfFinalizedTransactions(long fromTxId) 
-      throws IOException {
-    return getNumberOfTransactionsInternal(fromTxId, false);
-  }
-
   private void recoverUnclosedStreams() throws IOException {
     File currentDir = sd.getCurrentDir();
     for (File f : currentDir.listFiles()) {
@@ -247,12 +233,10 @@ public class FileJournalManager implements JournalManager {
     }
   }
 
-  private EditLogFile countTransactionsInInprogress(File f) 
+  static EditLogFile countTransactionsInInprogress(File f) 
       throws IOException {
-    synchronized(inProgressCache) {
-      if (inProgressCache.containsKey(f)) {
-        return inProgressCache.get(f);
-      }
+    if (inProgressCache.containsKey(f)) {
+      return inProgressCache.get(f);
     }
 
     EditLogFileInputStream edits = new EditLogFileInputStream(f);
@@ -261,19 +245,20 @@ public class FileJournalManager implements JournalManager {
     
     EditLogFile elf = new EditLogFile(val.getStartTxId(), val.getEndTxId(), f, 
                                       true, val.getNumTransactions() == 0);
-    synchronized(inProgressCache) {
-      inProgressCache.put(f, elf);
-    }
+    inProgressCache.putIfAbsent(f, elf);
+
     return elf;
   }
 
   RemoteEditLog getRemoteEditLog(long fromTxId) throws IOException {
-    List<RemoteEditLog> logs = new ArrayList<RemoteEditLog>();
-    for (EditLogFile elf : getLogFiles(fromTxId)) {
-      if (elf.startTxId == fromTxId) {
-        return new RemoteEditLog(elf.startTxId,
-                                 elf.endTxId);
+    List<EditLogFile> logs = getLogFiles(fromTxId);
+    if (logs != null && logs.size() > 0) {
+      EditLogFile elf = logs.get(0);
+      if (elf.inProgress) {
+        return null;
       }
+      return new RemoteEditLog(elf.startTxId,
+                               elf.endTxId);
     }
     return null;
   }
@@ -371,6 +356,29 @@ public class FileJournalManager implements JournalManager {
     EditLogFile(long startTxId, long endTxId, File file) {
       this(startTxId, endTxId, file, false, false);
     }    
+
+    File getFile() {
+      return file;
+    }
+
+    long getStartTxId() {
+      return startTxId;
+    }
+    
+    long getEndTxId() {
+      return endTxId;
+    }
+
+    boolean isInProgress() {
+      return inProgress;
+    }
+    
+    long getNumTransactions() {
+      if (endTxId == UNKNOWN_TXID) {
+        return 0;
+      }
+      return (endTxId - startTxId) + 1;
+    }
 
     public String toString() {
       return String.format("EditLogFile(file=%s,s=%019d,e=%019d,"

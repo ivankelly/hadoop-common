@@ -40,6 +40,7 @@ import java.util.Set;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.FSImageStorageInspector.FSImageFile;
+import org.apache.hadoop.hdfs.server.namenode.FileJournalManager.EditLogFile;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.util.MD5FileUtils;
 import org.apache.hadoop.io.IOUtils;
@@ -292,23 +293,12 @@ public abstract class FSImageTestUtil {
    * @return the latest edits log, finalized or otherwise, from the given
    * storage directory.
    */
-  public static FoundEditLog findLatestEditsLog(StorageDirectory sd)
+  public static EditLogFile findLatestEditsLog(StorageDirectory sd)
   throws IOException {
-    FSImageTransactionalStorageInspector inspector =
-      new FSImageTransactionalStorageInspector();
-    inspector.inspectDirectory(sd);
-    
-    List<FoundEditLog> foundEditLogs = Lists.newArrayList(
-        inspector.getFoundEditLogs());
-    return Collections.max(foundEditLogs, new Comparator<FoundEditLog>() {
-      @Override
-      public int compare(FoundEditLog a, FoundEditLog b) {
-        return ComparisonChain.start()
-          .compare(a.getStartTxId(), b.getStartTxId())
-          .compare(a.getLastTxId(), b.getLastTxId())
-          .result();
-      }
-    });
+    File currentDir = sd.getCurrentDir();
+    List<EditLogFile> foundEditLogs 
+      = Lists.newArrayList(FileJournalManager.matchEditLogs(currentDir.listFiles()));
+    return Collections.max(foundEditLogs, EditLogFile.COMPARE_BY_START_TXID);
   }
 
   /**

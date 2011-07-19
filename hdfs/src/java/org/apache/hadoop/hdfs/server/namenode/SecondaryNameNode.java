@@ -865,16 +865,17 @@ public class SecondaryNameNode implements Runnable {
       FSImage dstImage) throws IOException {
     NNStorage dstStorage = dstImage.getStorage();
 
-    List<File> editsFiles = Lists.newArrayList();
+    List<EditLogInputStream> editsStreams = Lists.newArrayList();
     for (RemoteEditLog log : manifest.getLogs()) {
       File f = dstStorage.findFinalizedEditsFile(
           log.getStartTxId(), log.getEndTxId());
       if (log.getStartTxId() > dstImage.getLastAppliedTxId()) {
-        editsFiles.add(f);
+        editsStreams.add(new EditLogFileInputStream(f, log.getStartTxId(), 
+                                                    log.getEndTxId()));
       }
     }
     LOG.info("SecondaryNameNode about to load edits from " +
-        editsFiles.size() + " file(s).");
-    dstImage.loadEdits(editsFiles);
+        editsStreams.size() + " file(s).");
+    dstImage.loadEdits(editsStreams);
   }
 }
