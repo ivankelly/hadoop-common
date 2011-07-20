@@ -18,13 +18,8 @@
 package org.apache.hadoop.hdfs.server.namenode;
 
 import java.io.IOException;
-import java.io.DataOutputStream;
 
 import static org.apache.hadoop.hdfs.server.common.Util.now;
-import org.apache.hadoop.util.PureJavaCrc32;
-import java.util.zip.Checksum;
-import java.util.zip.CheckedOutputStream;
-import org.apache.hadoop.io.Writable;
 
 /**
  * A generic abstract class to support journaling of edits logs into 
@@ -34,26 +29,31 @@ abstract class EditLogOutputStream implements JournalStream {
   // these are statistics counters
   private long numSync;        // number of sync(s) to disk
   private long totalTimeSync;  // total time to sync
-  private DataOutputStream dataStream = null;
-  private Checksum checksum = null;
 
   EditLogOutputStream() throws IOException {
     numSync = totalTimeSync = 0;
   }
 
   /**
-   * Write edits log record into the stream.
-   * The record is represented by operation name and
-   * an array of Writable arguments.
+   * Write edits log operation to the stream.
    * 
    * @param op operation
-   * @param writables array of Writable arguments
    * @throws IOException
    */
   abstract void write(FSEditLogOp op) throws IOException;
   
-  /** IKTODO javadoc */
-  abstract void writeRaw(byte[] bytes, int offset, int length) throws IOException;
+  /** 
+   * Write raw data to the stream. 
+   * This should only be used in new code
+   * can interfere with reading from the stream in an op-wise fashion
+   *
+   * @param bytes the bytes to write.
+   * @param offset offset in the bytes to write from
+   * @param length number of bytes to write
+   * @throws IOException
+   */
+  abstract void writeRaw(byte[] bytes, int offset, int length)
+      throws IOException;
 
   /**
    * Create and initialize underlying persistent edits log storage.
@@ -129,27 +129,4 @@ abstract class EditLogOutputStream implements JournalStream {
   public String toString() {
     return getName();
   }
-  /*
-  public Checksum getChecksum() {
-    if (checksum == null) {
-      synchronized(this) {
-        if (checksum == null) {
-          checksum = new PureJavaCrc32();
-        }
-      }
-    }
-    return checksum;
-  }
-
-  protected DataOutputStream getDataOutputStream() {
-    if (dataStream == null) {
-      synchronized(this) {
-        if (dataStream == null) {
-          dataStream = new DataOutputStream(
-              new CheckedOutputStream(this, getChecksum()));
-        }
-      }
-    } 
-    return dataStream;
-    }*/
 }

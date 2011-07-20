@@ -1385,8 +1385,6 @@ public abstract class FSEditLogOp {
     @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
-      throw new IOException("Should never read jspool op from a stream"
-                            + "op code = " + opCode);
     }
   }
 
@@ -1422,8 +1420,7 @@ public abstract class FSEditLogOp {
     @Override
     public void readFields(DataInputStream in, int logVersion)
         throws IOException {
-      throw new IOException("Should never read jspool op from a stream"
-                            + "op code = " + opCode);
+      this.checkpointTime = readLong(in);
     }
   }
 
@@ -1535,6 +1532,7 @@ public abstract class FSEditLogOp {
       opInstances.put(OP_CANCEL_DELEGATION_TOKEN,
                       CancelDelegationTokenOp.getInstance());
       opInstances.put(OP_UPDATE_MASTER_KEY, UpdateMasterKeyOp.getInstance());
+      opInstances.put(OP_CHECKPOINT_TIME, CheckpointTimeOp.getInstance());
     }
 
     /**

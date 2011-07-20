@@ -102,6 +102,12 @@ class EditLogFileOutputStream extends EditLogOutputStream {
     bufCurrent.writeInt(sum);
   }
 
+  /** {@inheritDoc} */
+  @Override
+  void writeRaw(byte[] bytes, int offset, int length) throws IOException {
+    bufCurrent.write(bytes, offset, length);
+  }
+
   /**
    * Create empty edits logs file.
    */
