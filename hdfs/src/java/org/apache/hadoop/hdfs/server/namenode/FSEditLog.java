@@ -17,7 +17,9 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
+import java.net.URI;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ArrayList;
@@ -38,6 +40,7 @@ import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.JournalManager.CorruptionException;
+import org.apache.hadoop.hdfs.server.namenode.bkjournal.BookKeeperJournalManager;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
@@ -48,6 +51,7 @@ import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.security.token.delegation.DelegationKey;
 import org.apache.hadoop.util.PureJavaCrc32;
+import org.apache.hadoop.conf.Configuration;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -145,25 +149,45 @@ public class FSEditLog  {
     }
   };
 
-  FSEditLog(NNStorage storage) {
+  final private Collection<URI> editsDirs;
+  final private Configuration conf;
+
+  FSEditLog(Configuration conf, NNStorage storage, Collection<URI> editsDirs) 
+      throws IOException {
     isSyncRunning = false;
     this.storage = storage;
+    this.conf = conf;
+
     metrics = NameNode.getNameNodeMetrics();
     lastPrintTime = now();
     
+    if (editsDirs.isEmpty()) {
+      this.editsDirs = Lists.newArrayList(storage.getEditsDirectories());
+    } else {
+      this.editsDirs = Lists.newArrayList(editsDirs);
+    }
+
     initJournals();
   }
   
   /**
    * Initialize the list of edit journals
    */
-  synchronized void initJournals() {
+  synchronized void initJournals() throws IOException {
     assert journals.isEmpty();
     Preconditions.checkState(state == State.UNINITIALIZED,
         "Bad state: %s", state);
     
-    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
-      journals.add(new JournalAndStream(new FileJournalManager(sd)));
+    for (URI u : editsDirs) {
+      if (u.getScheme().equals("file")) {
+        StorageDirectory sd = storage.getStorageDirectory(u);
+        journals.add(new JournalAndStream(new FileJournalManager(sd)));
+      } else if (u.getScheme().equals("bookkeeper")) {
+        journals.add(new JournalAndStream(
+                         new BookKeeperJournalManager(u, conf)));
+      } else {
+        throw new IllegalArgumentException("Unrecognised uri format " + u);
+      }
     }
     
     if (journals.isEmpty()) {

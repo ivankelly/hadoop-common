@@ -39,11 +39,13 @@ import org.apache.hadoop.hdfs.server.namenode.FileJournalManager.EditLogFile;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.util.MD5FileUtils;
 import org.apache.hadoop.io.IOUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.mockito.Mockito;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.Files;
@@ -138,7 +140,9 @@ public abstract class FSImageTestUtil {
         FSImageTestUtil.mockStorageDirectory(logDir, NameNodeDirType.EDITS));
     Mockito.doReturn(sds).when(storage).dirIterable(NameNodeDirType.EDITS);
 
-    return new FSEditLog(storage);
+    return new FSEditLog(new Configuration(), 
+                         storage,
+                         ImmutableList.of(logDir.toURI()));
   }
   
   /**

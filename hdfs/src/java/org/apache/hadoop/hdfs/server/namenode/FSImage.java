@@ -148,7 +148,7 @@ public class FSImage implements Closeable {
       storage.setRestoreFailedStorage(true);
     }
 
-    this.editLog = new FSEditLog(storage);
+    this.editLog = new FSEditLog(conf, storage, editsDirs);
     setFSNamesystem(ns);
     
     archivalManager = new NNStorageArchivalManager(conf, storage, editLog);

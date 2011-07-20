@@ -794,7 +794,8 @@ public class TestEditLog extends TestCase {
     for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
       storage.format(sd);
     }
-    FSEditLog editlog = new FSEditLog(storage);    
+    FSEditLog editlog = new FSEditLog(new Configuration(), 
+                                      storage, editUris);    
     // open the edit log and add two transactions
     // logGenerationStamp is used, simply because it doesn't 
     // require complex arguments.
@@ -853,7 +854,8 @@ public class TestEditLog extends TestCase {
                                    new AbortSpec(9, 0),
                                    new AbortSpec(10, 1));
     long totaltxnread = 0;
-    FSEditLog editlog = new FSEditLog(storage);
+    FSEditLog editlog = new FSEditLog(new Configuration(), 
+                                      storage, editUris);
     long startTxId = 1;
     Iterable<EditLogInputStream> editStreams = editlog.selectInputStreams(startTxId, 
                                                                           TXNS_PER_ROLL*11);
@@ -902,7 +904,7 @@ public class TestEditLog extends TestCase {
     assertEquals(1, files.length);
     assertTrue(files[0].delete());
     
-    FSEditLog editlog = new FSEditLog(storage);
+    FSEditLog editlog = new FSEditLog(new Configuration(), storage, editUris);
     long startTxId = 1;
     try {
       Iterable<EditLogInputStream> editStreams 
@@ -934,7 +936,7 @@ public class TestEditLog extends TestCase {
     storage = new NNStorage(new Configuration(),
                             Collections.<URI>emptyList(),
                             editUris);
-    FSEditLog editlog = new FSEditLog(storage);
+    FSEditLog editlog = new FSEditLog(new Configuration(), storage, editUris);
     assertEquals(String.format("[[%d,%d], [%d,%d], [%d,%d], [%d,%d]]", 
                                1, TXNS_PER_ROLL, TXNS_PER_ROLL+1, TXNS_PER_ROLL*2,
                                (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
@@ -972,7 +974,7 @@ public class TestEditLog extends TestCase {
     storage = new NNStorage(new Configuration(),
                             Collections.<URI>emptyList(),
                             editUris);
-    FSEditLog editlog = new FSEditLog(storage);
+    FSEditLog editlog = new FSEditLog(new Configuration(), storage, editUris);
     assertEquals(String.format("[[%d,%d], [%d,%d], [%d,%d], [%d,%d]]", 
                                1, TXNS_PER_ROLL, TXNS_PER_ROLL+1, TXNS_PER_ROLL*2,
                                (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
