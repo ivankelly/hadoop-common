@@ -41,11 +41,12 @@ abstract class EditLogOutputStream implements JournalStream {
    * @throws IOException
    */
   abstract void write(FSEditLogOp op) throws IOException;
-  
-  /** 
-   * Write raw data to the stream. 
-   * This should only be used in new code
-   * can interfere with reading from the stream in an op-wise fashion
+
+  /**
+   * Write raw data to an edit log. This data should already have
+   * the transaction ID, checksum, etc included. It is for use
+   * within the BackupNode when replicating edits from the
+   * NameNode.
    *
    * @param bytes the bytes to write.
    * @param offset offset in the bytes to write from

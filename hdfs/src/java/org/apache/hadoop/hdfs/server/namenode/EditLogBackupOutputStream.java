@@ -18,6 +18,7 @@
 package org.apache.hadoop.hdfs.server.namenode;
 
 import java.io.DataOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -45,9 +46,20 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
   private NamenodeProtocol backupNode;          // RPC proxy to backup node
   private NamenodeRegistration bnRegistration;  // backup node registration
   private NamenodeRegistration nnRegistration;  // active node registration
-  private ArrayList<FSEditLogOp> bufCurrent;  // current buffer for writing
-  private ArrayList<FSEditLogOp> bufReady;    // buffer ready for flushing
+  private ArrayList<BufferedOp> bufCurrent;  // current buffer for writing
+  private ArrayList<BufferedOp> bufReady;    // buffer ready for flushing
   private DataOutputBuffer out;     // serialized output sent to backup node
+
+  
+  private class BufferedOp { 
+    public final FSEditLogOpCodes opCode;
+    public final byte[] bytes;
+
+    public BufferedOp(FSEditLogOpCodes opCode, byte[] bytes) {
+      this.opCode = opCode;
+      this.bytes = bytes;
+    }
+  }
 
   EditLogBackupOutputStream(NamenodeRegistration bnReg, // backup node
                             NamenodeRegistration nnReg) // active name-node
@@ -66,8 +78,8 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
       Storage.LOG.error("Error connecting to: " + bnAddress, e);
       throw e;
     }
-    this.bufCurrent = new ArrayList<FSEditLogOp>();
-    this.bufReady = new ArrayList<FSEditLogOp>();
+    this.bufCurrent = new ArrayList<BufferedOp>();
+    this.bufReady = new ArrayList<BufferedOp>();
     this.out = new DataOutputBuffer(DEFAULT_BUFFER_SIZE);
   }
 
@@ -83,7 +95,11 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
 
   @Override // EditLogOutputStream
   void write(FSEditLogOp op) throws IOException {
-    bufCurrent.add(op);
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    DataOutputStream s = new DataOutputStream(baos);
+    op.writeFields(s);
+
+    bufCurrent.add(new BufferedOp(op.opCode, baos.toByteArray()));
   }
 
   @Override
@@ -116,7 +132,7 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
   @Override // EditLogOutputStream
   void setReadyToFlush() throws IOException {
     assert bufReady.size() == 0 : "previous data is not flushed yet";
-    ArrayList<FSEditLogOp>  tmp = bufReady;
+    ArrayList<BufferedOp>  tmp = bufReady;
     bufReady = bufCurrent;
     bufCurrent = tmp;
   }
@@ -126,13 +142,13 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
     assert out.size() == 0 : "Output buffer is not empty";
     int bufReadySize = bufReady.size();
     for(int idx = 0; idx < bufReadySize; idx++) {
-      FSEditLogOp jRec = null;
+      BufferedOp jRec = null;
       for(; idx < bufReadySize; idx++) {
         jRec = bufReady.get(idx);
         if(jRec.opCode.getOpCode() 
            >= FSEditLogOpCodes.OP_JSPOOL_START.getOpCode())
           break;  // special operation should be sent in a separate call to BN
-        jRec.writeFields(out);
+        out.write(jRec.bytes, 0, jRec.bytes.length);
       }
       if(out.size() > 0)
         send(NamenodeProtocol.JA_JOURNAL);
@@ -140,7 +156,7 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
         break;
       // operation like start journal spool or increment checkpoint time
       // is a separate call to BN
-      jRec.writeFields(out);
+      out.write(jRec.bytes, 0, jRec.bytes.length);
       send(jRec.opCode.getOpCode());
     }
     bufReady.clear();         // erase all data in the buffer

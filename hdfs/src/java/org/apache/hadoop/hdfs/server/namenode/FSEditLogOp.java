@@ -61,6 +61,42 @@ import java.io.EOFException;
 public abstract class FSEditLogOp {
   final FSEditLogOpCodes opCode;
 
+  private static ThreadLocal<EnumMap<FSEditLogOpCodes, FSEditLogOp>> opInstances =
+    new ThreadLocal<EnumMap<FSEditLogOpCodes, FSEditLogOp>>() {
+      @Override
+      protected EnumMap<FSEditLogOpCodes, FSEditLogOp> initialValue() {
+        EnumMap<FSEditLogOpCodes, FSEditLogOp> instances 
+        = new EnumMap<FSEditLogOpCodes, FSEditLogOp>(FSEditLogOpCodes.class);
+        instances.put(OP_ADD, new AddOp());
+        instances.put(OP_CLOSE, new CloseOp());
+        instances.put(OP_SET_REPLICATION, new SetReplicationOp());
+        instances.put(OP_CONCAT_DELETE, new ConcatDeleteOp());
+        instances.put(OP_RENAME_OLD, new RenameOldOp());
+        instances.put(OP_DELETE, new DeleteOp());
+        instances.put(OP_MKDIR, new MkdirOp());
+        instances.put(OP_SET_GENSTAMP, new SetGenstampOp());
+        instances.put(OP_DATANODE_ADD, new DatanodeAddOp());
+        instances.put(OP_DATANODE_REMOVE, new DatanodeRemoveOp());
+        instances.put(OP_SET_PERMISSIONS, new SetPermissionsOp());
+        instances.put(OP_SET_OWNER, new SetOwnerOp());
+        instances.put(OP_SET_NS_QUOTA, new SetNSQuotaOp());
+        instances.put(OP_CLEAR_NS_QUOTA, new ClearNSQuotaOp());
+        instances.put(OP_SET_QUOTA, new SetQuotaOp());
+        instances.put(OP_TIMES, new TimesOp());
+        instances.put(OP_SYMLINK, new SymlinkOp());
+        instances.put(OP_RENAME, new RenameOp());
+        instances.put(OP_REASSIGN_LEASE, new ReassignLeaseOp());
+        instances.put(OP_GET_DELEGATION_TOKEN, new GetDelegationTokenOp());
+        instances.put(OP_RENEW_DELEGATION_TOKEN, new RenewDelegationTokenOp());
+        instances.put(OP_CANCEL_DELEGATION_TOKEN, 
+                      new CancelDelegationTokenOp());
+        instances.put(OP_UPDATE_MASTER_KEY, new UpdateMasterKeyOp());
+        instances.put(OP_CHECKPOINT_TIME, new CheckpointTimeOp());
+        instances.put(OP_JSPOOL_START, new JSpoolStartOp());
+        return instances;
+      }
+  };
+
   /**
    * Constructor for an EditLog Op. EditLog ops cannot be constructed
    * directly, but only through Reader#readOp.
@@ -77,22 +113,7 @@ public abstract class FSEditLogOp {
     out.writeByte(opCode.getOpCode());
   }
 
-  static class AddCloseOp extends FSEditLogOp {
-    private static ThreadLocal<AddCloseOp> addInstance 
-      = new ThreadLocal<AddCloseOp>() {
-      @Override 
-      protected AddCloseOp initialValue() { 
-        return new AddCloseOp(OP_ADD); 
-      }
-    };
-    private static ThreadLocal<AddCloseOp> closeInstance 
-      = new ThreadLocal<AddCloseOp>() {
-      @Override 
-      protected AddCloseOp initialValue() { 
-        return new AddCloseOp(OP_CLOSE); 
-      }
-    };
-
+  static abstract class AddCloseOp extends FSEditLogOp {
     int length;
     String path;
     short replication;
@@ -108,16 +129,6 @@ public abstract class FSEditLogOp {
     private AddCloseOp(FSEditLogOpCodes opCode) {
       super(opCode);
       assert(opCode == OP_ADD || opCode == OP_CLOSE);
-    }
-
-    static AddCloseOp getInstance(FSEditLogOpCodes opCode) {
-      if (opCode == OP_ADD) {
-        return addInstance.get();
-      } else if (opCode == OP_CLOSE) {
-        return closeInstance.get();
-      }
-      assert(opCode == OP_ADD || opCode == OP_CLOSE);
-      return null;
     }
 
     AddCloseOp setPath(String path) {
@@ -267,14 +278,27 @@ public abstract class FSEditLogOp {
     }
   }
 
+  static class AddOp extends AddCloseOp {
+    private AddOp() {
+      super(OP_ADD);
+    }
+
+    static AddOp getInstance() {
+      return AddOp.class.cast(opInstances.get().get(OP_ADD));
+    }
+  }
+
+  static class CloseOp extends AddCloseOp {
+    private CloseOp() {
+      super(OP_CLOSE);
+    }
+
+    static CloseOp getInstance() {
+      return CloseOp.class.cast(opInstances.get().get(OP_CLOSE));
+    }
+  }
+
   static class SetReplicationOp extends FSEditLogOp {
-    private static ThreadLocal<SetReplicationOp> staticInstance 
-      = new ThreadLocal<SetReplicationOp>() {
-      @Override
-      protected SetReplicationOp initialValue() { 
-        return new SetReplicationOp(); 
-      }
-    };
     String path;
     short replication;
 
@@ -283,7 +307,8 @@ public abstract class FSEditLogOp {
     }
 
     static SetReplicationOp getInstance() {
-      return staticInstance.get();
+      return SetReplicationOp.class.cast(opInstances.get()
+                                         .get(OP_SET_REPLICATION));
     }
 
     SetReplicationOp setPath(String path) {
@@ -312,13 +337,6 @@ public abstract class FSEditLogOp {
   }
 
   static class ConcatDeleteOp extends FSEditLogOp {
-    private static ThreadLocal<ConcatDeleteOp> staticInstance 
-      = new ThreadLocal<ConcatDeleteOp>() {
-      @Override
-      protected ConcatDeleteOp initialValue() { 
-        return new ConcatDeleteOp(); 
-      }
-    };
     int length;
     String trg;
     String[] srcs;
@@ -329,7 +347,8 @@ public abstract class FSEditLogOp {
     }
 
     static ConcatDeleteOp getInstance() {
-      return staticInstance.get();
+      return ConcatDeleteOp.class.cast(opInstances.get()
+                                         .get(OP_CONCAT_DELETE));
     }
 
     ConcatDeleteOp setTarget(String trg) {
@@ -381,14 +400,6 @@ public abstract class FSEditLogOp {
   }
 
   static class RenameOldOp extends FSEditLogOp {
-    private static ThreadLocal<RenameOldOp> staticInstance 
-      = new ThreadLocal<RenameOldOp>() {
-      @Override
-      protected RenameOldOp initialValue() { 
-        return new RenameOldOp(); 
-      }
-    };
-
     int length;
     String src;
     String dst;
@@ -399,7 +410,8 @@ public abstract class FSEditLogOp {
     }
 
     static RenameOldOp getInstance() {
-      return staticInstance.get();
+      return RenameOldOp.class.cast(opInstances.get()
+                                         .get(OP_RENAME_OLD));
     }
 
     RenameOldOp setSource(String src) {
@@ -443,13 +455,6 @@ public abstract class FSEditLogOp {
   }
 
   static class DeleteOp extends FSEditLogOp {
-    private static ThreadLocal<DeleteOp> staticInstance 
-      = new ThreadLocal<DeleteOp>() {
-      @Override
-      protected DeleteOp initialValue() { 
-        return new DeleteOp(); 
-      }
-    };
     int length;
     String path;
     long timestamp;
@@ -459,7 +464,8 @@ public abstract class FSEditLogOp {
     }
 
     static DeleteOp getInstance() {
-      return staticInstance.get();
+      return DeleteOp.class.cast(opInstances.get()
+                                 .get(OP_DELETE));
     }
 
     DeleteOp setPath(String path) {
@@ -496,13 +502,6 @@ public abstract class FSEditLogOp {
   }
 
   static class MkdirOp extends FSEditLogOp {
-    private static ThreadLocal<MkdirOp> staticInstance 
-      = new ThreadLocal<MkdirOp>() {
-      @Override
-      protected MkdirOp initialValue() { 
-        return new MkdirOp(); 
-      }
-    };
     int length;
     String path;
     long timestamp;
@@ -513,7 +512,8 @@ public abstract class FSEditLogOp {
     }
     
     static MkdirOp getInstance() {
-      return staticInstance.get();
+      return MkdirOp.class.cast(opInstances.get()
+                                .get(OP_MKDIR));
     }
 
     MkdirOp setPath(String path) {
@@ -573,14 +573,6 @@ public abstract class FSEditLogOp {
   }
 
   static class SetGenstampOp extends FSEditLogOp {
-    private static ThreadLocal<SetGenstampOp> staticInstance 
-      = new ThreadLocal<SetGenstampOp>() {
-      @Override
-      protected SetGenstampOp initialValue() { 
-        return new SetGenstampOp(); 
-      }
-    };
-
     long genStamp;
 
     private SetGenstampOp() {
@@ -588,7 +580,8 @@ public abstract class FSEditLogOp {
     }
 
     static SetGenstampOp getInstance() {
-      return staticInstance.get();
+      return SetGenstampOp.class.cast(opInstances.get()
+                                      .get(OP_SET_GENSTAMP));
     }
 
     SetGenstampOp setGenerationStamp(long genStamp) {
@@ -610,21 +603,14 @@ public abstract class FSEditLogOp {
   }
 
   static class DatanodeAddOp extends FSEditLogOp {
-    private static ThreadLocal<DatanodeAddOp> staticInstance 
-      = new ThreadLocal<DatanodeAddOp>() {
-      @Override
-      protected DatanodeAddOp initialValue() { 
-        return new DatanodeAddOp(); 
-      }
-    };
-
     @SuppressWarnings("deprecation")
     private DatanodeAddOp() {
       super(OP_DATANODE_ADD);
     }
 
     static DatanodeAddOp getInstance() {
-      return staticInstance.get();
+      return DatanodeAddOp.class.cast(opInstances.get()
+                                      .get(OP_DATANODE_ADD));
     }
 
     @Override
@@ -636,21 +622,14 @@ public abstract class FSEditLogOp {
   }
 
   static class DatanodeRemoveOp extends FSEditLogOp {
-    private static ThreadLocal<DatanodeRemoveOp> staticInstance 
-      = new ThreadLocal<DatanodeRemoveOp>() {
-      @Override
-      protected DatanodeRemoveOp initialValue() { 
-        return new DatanodeRemoveOp(); 
-      }
-    };
-
     @SuppressWarnings("deprecation")
     private DatanodeRemoveOp() {
       super(OP_DATANODE_REMOVE);
     }
 
     static DatanodeRemoveOp getInstance() {
-      return staticInstance.get();
+      return DatanodeRemoveOp.class.cast(opInstances.get()
+                                         .get(OP_DATANODE_REMOVE));
     }
 
     @Override
@@ -663,14 +642,6 @@ public abstract class FSEditLogOp {
   }
 
   static class SetPermissionsOp extends FSEditLogOp {
-    private static ThreadLocal<SetPermissionsOp> staticInstance 
-      = new ThreadLocal<SetPermissionsOp>() {
-      @Override
-      protected SetPermissionsOp initialValue() { 
-        return new SetPermissionsOp(); 
-      }
-    };
-
     String src;
     FsPermission permissions;
 
@@ -679,7 +650,8 @@ public abstract class FSEditLogOp {
     }
 
     static SetPermissionsOp getInstance() {
-      return staticInstance.get();
+      return SetPermissionsOp.class.cast(opInstances.get()
+                                         .get(OP_SET_PERMISSIONS));
     }
 
     SetPermissionsOp setSource(String src) {
@@ -708,14 +680,6 @@ public abstract class FSEditLogOp {
   }
 
   static class SetOwnerOp extends FSEditLogOp {
-    private static ThreadLocal<SetOwnerOp> staticInstance 
-      = new ThreadLocal<SetOwnerOp>() {
-      @Override
-      protected SetOwnerOp initialValue() { 
-        return new SetOwnerOp(); 
-      }
-    };
-
     String src;
     String username;
     String groupname;
@@ -725,7 +689,8 @@ public abstract class FSEditLogOp {
     }
 
     static SetOwnerOp getInstance() {
-      return staticInstance.get();
+      return SetOwnerOp.class.cast(opInstances.get()
+                                   .get(OP_SET_OWNER));
     }
 
     SetOwnerOp setSource(String src) {
@@ -763,14 +728,6 @@ public abstract class FSEditLogOp {
   }
 
   static class SetNSQuotaOp extends FSEditLogOp {
-    private static ThreadLocal<SetNSQuotaOp> staticInstance 
-      = new ThreadLocal<SetNSQuotaOp>() {
-      @Override
-      protected SetNSQuotaOp initialValue() { 
-        return new SetNSQuotaOp(); 
-      }
-    };
-
     String src;
     long nsQuota;
 
@@ -779,7 +736,8 @@ public abstract class FSEditLogOp {
     }
 
     static SetNSQuotaOp getInstance() {
-      return staticInstance.get();
+      return SetNSQuotaOp.class.cast(opInstances.get()
+                                     .get(OP_SET_NS_QUOTA));
     }
 
     @Override 
@@ -796,14 +754,6 @@ public abstract class FSEditLogOp {
   }
 
   static class ClearNSQuotaOp extends FSEditLogOp {
-    private static ThreadLocal<ClearNSQuotaOp> staticInstance 
-      = new ThreadLocal<ClearNSQuotaOp>() {
-      @Override
-      protected ClearNSQuotaOp initialValue() { 
-        return new ClearNSQuotaOp(); 
-      }
-    };
-
     String src;
 
     private ClearNSQuotaOp() {
@@ -811,7 +761,8 @@ public abstract class FSEditLogOp {
     }
 
     static ClearNSQuotaOp getInstance() {
-      return staticInstance.get();
+      return ClearNSQuotaOp.class.cast(opInstances.get()
+                                       .get(OP_CLEAR_NS_QUOTA));
     }
 
     @Override 
@@ -827,14 +778,6 @@ public abstract class FSEditLogOp {
   }
 
   static class SetQuotaOp extends FSEditLogOp {
-    private static ThreadLocal<SetQuotaOp> staticInstance 
-      = new ThreadLocal<SetQuotaOp>() {
-      @Override
-      protected SetQuotaOp initialValue() { 
-        return new SetQuotaOp(); 
-      }
-    };
-
     String src;
     long nsQuota;
     long dsQuota;
@@ -844,7 +787,8 @@ public abstract class FSEditLogOp {
     }
 
     static SetQuotaOp getInstance() {
-      return staticInstance.get();
+      return SetQuotaOp.class.cast(opInstances.get()
+                                   .get(OP_SET_QUOTA));
     }
 
     SetQuotaOp setSource(String src) {
@@ -880,14 +824,6 @@ public abstract class FSEditLogOp {
   }
 
   static class TimesOp extends FSEditLogOp {
-    private static ThreadLocal<TimesOp> staticInstance 
-      = new ThreadLocal<TimesOp>() {
-      @Override
-      protected TimesOp initialValue() { 
-        return new TimesOp(); 
-      }
-    };
-
     int length;
     String path;
     long mtime;
@@ -898,7 +834,8 @@ public abstract class FSEditLogOp {
     }
 
     static TimesOp getInstance() {
-      return staticInstance.get();
+      return TimesOp.class.cast(opInstances.get()
+                                .get(OP_TIMES));
     }
 
     TimesOp setPath(String path) {
@@ -941,13 +878,6 @@ public abstract class FSEditLogOp {
   }
 
   static class SymlinkOp extends FSEditLogOp {
-    private static ThreadLocal<SymlinkOp> staticInstance 
-      = new ThreadLocal<SymlinkOp>() {
-      @Override
-      protected SymlinkOp initialValue() { 
-        return new SymlinkOp(); 
-      }
-    };
     int length;
     String path;
     String value;
@@ -960,7 +890,8 @@ public abstract class FSEditLogOp {
     }
 
     static SymlinkOp getInstance() {
-      return staticInstance.get();
+      return SymlinkOp.class.cast(opInstances.get()
+                                  .get(OP_SYMLINK));
     }
 
     SymlinkOp setPath(String path) {
@@ -1019,13 +950,6 @@ public abstract class FSEditLogOp {
   }
 
   static class RenameOp extends FSEditLogOp {
-    private static ThreadLocal<RenameOp> staticInstance 
-      = new ThreadLocal<RenameOp>() {
-      @Override
-      protected RenameOp initialValue() { 
-        return new RenameOp(); 
-      }
-    };
     int length;
     String src;
     String dst;
@@ -1037,7 +961,8 @@ public abstract class FSEditLogOp {
     }
 
     static RenameOp getInstance() {
-      return staticInstance.get();
+      return RenameOp.class.cast(opInstances.get()
+                                 .get(OP_RENAME));
     }
 
     RenameOp setSource(String src) {
@@ -1109,14 +1034,6 @@ public abstract class FSEditLogOp {
   }
 
   static class ReassignLeaseOp extends FSEditLogOp {
-    private static ThreadLocal<ReassignLeaseOp> staticInstance 
-      = new ThreadLocal<ReassignLeaseOp>() {
-      @Override
-      protected ReassignLeaseOp initialValue() { 
-        return new ReassignLeaseOp(); 
-      }
-    };
-
     String leaseHolder;
     String path;
     String newHolder;
@@ -1126,7 +1043,8 @@ public abstract class FSEditLogOp {
     }
 
     static ReassignLeaseOp getInstance() {
-      return staticInstance.get();
+      return ReassignLeaseOp.class.cast(opInstances.get()
+                                        .get(OP_REASSIGN_LEASE));
     }
 
     ReassignLeaseOp setLeaseHolder(String leaseHolder) {
@@ -1163,13 +1081,6 @@ public abstract class FSEditLogOp {
   }
 
   static class GetDelegationTokenOp extends FSEditLogOp {
-    private static ThreadLocal<GetDelegationTokenOp> staticInstance 
-      = new ThreadLocal<GetDelegationTokenOp>() {
-      @Override
-      protected GetDelegationTokenOp initialValue() { 
-        return new GetDelegationTokenOp(); 
-      }
-    };
     DelegationTokenIdentifier token;
     long expiryTime;
 
@@ -1178,7 +1089,8 @@ public abstract class FSEditLogOp {
     }
 
     static GetDelegationTokenOp getInstance() {
-      return staticInstance.get();
+      return GetDelegationTokenOp.class.cast(opInstances.get()
+                                             .get(OP_GET_DELEGATION_TOKEN));
     }
 
     GetDelegationTokenOp setDelegationTokenIdentifier(
@@ -1209,14 +1121,6 @@ public abstract class FSEditLogOp {
   }
 
   static class RenewDelegationTokenOp extends FSEditLogOp {
-    private static ThreadLocal<RenewDelegationTokenOp> staticInstance 
-      = new ThreadLocal<RenewDelegationTokenOp>() {
-      @Override
-      protected RenewDelegationTokenOp initialValue() { 
-        return new RenewDelegationTokenOp(); 
-      }
-    };
-
     DelegationTokenIdentifier token;
     long expiryTime;
 
@@ -1225,7 +1129,8 @@ public abstract class FSEditLogOp {
     }
 
     static RenewDelegationTokenOp getInstance() {
-      return staticInstance.get();
+      return RenewDelegationTokenOp.class.cast(opInstances.get()
+          .get(OP_RENEW_DELEGATION_TOKEN));
     }
 
     RenewDelegationTokenOp setDelegationTokenIdentifier(
@@ -1256,14 +1161,6 @@ public abstract class FSEditLogOp {
   }
 
   static class CancelDelegationTokenOp extends FSEditLogOp {
-    private static ThreadLocal<CancelDelegationTokenOp> staticInstance 
-      = new ThreadLocal<CancelDelegationTokenOp>() {
-      @Override
-      protected CancelDelegationTokenOp initialValue() { 
-        return new CancelDelegationTokenOp(); 
-      }
-    };
-    
     DelegationTokenIdentifier token;
 
     private CancelDelegationTokenOp() {
@@ -1271,7 +1168,8 @@ public abstract class FSEditLogOp {
     }
 
     static CancelDelegationTokenOp getInstance() {
-      return staticInstance.get();
+      return CancelDelegationTokenOp.class.cast(opInstances.get()
+          .get(OP_CANCEL_DELEGATION_TOKEN));
     }
 
     CancelDelegationTokenOp setDelegationTokenIdentifier(
@@ -1295,13 +1193,6 @@ public abstract class FSEditLogOp {
   }
 
   static class UpdateMasterKeyOp extends FSEditLogOp {
-    private static ThreadLocal<UpdateMasterKeyOp> staticInstance 
-      = new ThreadLocal<UpdateMasterKeyOp>() {
-      @Override
-      protected UpdateMasterKeyOp initialValue() { 
-        return new UpdateMasterKeyOp(); 
-      }
-    };
     DelegationKey key;
 
     private UpdateMasterKeyOp() {
@@ -1309,7 +1200,8 @@ public abstract class FSEditLogOp {
     }
 
     static UpdateMasterKeyOp getInstance() {
-      return staticInstance.get();
+      return UpdateMasterKeyOp.class.cast(opInstances.get()
+          .get(OP_UPDATE_MASTER_KEY));
     }
 
     UpdateMasterKeyOp setDelegationKey(DelegationKey key) {
@@ -1332,20 +1224,12 @@ public abstract class FSEditLogOp {
   }
 
   static class InvalidOp extends FSEditLogOp {
-    private static ThreadLocal<InvalidOp> staticInstance 
-      = new ThreadLocal<InvalidOp>() {
-      @Override
-      protected InvalidOp initialValue() { 
-        return new InvalidOp(); 
-      }
-    };
-
     private InvalidOp() {
       super(OP_INVALID);
     }
 
     static InvalidOp getInstance() {
-      return staticInstance.get();
+      return InvalidOp.class.cast(opInstances.get().get(OP_INVALID));
     }
 
     @Override 
@@ -1361,20 +1245,12 @@ public abstract class FSEditLogOp {
   }
 
   static class JSpoolStartOp extends FSEditLogOp {
-    private static ThreadLocal<JSpoolStartOp> staticInstance 
-      = new ThreadLocal<JSpoolStartOp>() {
-      @Override
-      protected JSpoolStartOp initialValue() { 
-        return new JSpoolStartOp(); 
-      }
-    };
-
     private JSpoolStartOp() {
       super(OP_JSPOOL_START);
     }
 
     static JSpoolStartOp getInstance() {
-      return staticInstance.get();
+      return JSpoolStartOp.class.cast(opInstances.get().get(OP_JSPOOL_START));
     }
 
     @Override 
@@ -1389,13 +1265,6 @@ public abstract class FSEditLogOp {
   }
 
   static class CheckpointTimeOp extends FSEditLogOp {
-    private static ThreadLocal<CheckpointTimeOp> staticInstance 
-      = new ThreadLocal<CheckpointTimeOp>() {
-      @Override
-      protected CheckpointTimeOp initialValue() { 
-        return new CheckpointTimeOp(); 
-      }
-    };
     long checkpointTime;
 
     private CheckpointTimeOp() {
@@ -1408,7 +1277,8 @@ public abstract class FSEditLogOp {
     }
 
     static CheckpointTimeOp getInstance() {
-      return staticInstance.get();
+      return CheckpointTimeOp.class.cast(
+          opInstances.get().get(OP_CHECKPOINT_TIME));
     }
 
     @Override 
@@ -1493,7 +1363,7 @@ public abstract class FSEditLogOp {
     private final DataInputStream in;
     private final int logVersion;
     private final Checksum checksum;
-    private EnumMap<FSEditLogOpCodes, FSEditLogOp> opInstances;
+
     /**
      * Construct the reader
      * @param in The stream to read from.
@@ -1506,33 +1376,6 @@ public abstract class FSEditLogOp {
       this.in = in;
       this.logVersion = logVersion;
       this.checksum = checksum;
-      opInstances = new EnumMap<FSEditLogOpCodes, FSEditLogOp>(
-          FSEditLogOpCodes.class);
-      opInstances.put(OP_ADD, AddCloseOp.getInstance(OP_ADD));
-      opInstances.put(OP_CLOSE, AddCloseOp.getInstance(OP_CLOSE));
-      opInstances.put(OP_SET_REPLICATION, SetReplicationOp.getInstance());
-      opInstances.put(OP_CONCAT_DELETE, ConcatDeleteOp.getInstance());
-      opInstances.put(OP_RENAME_OLD, RenameOldOp.getInstance());
-      opInstances.put(OP_DELETE, DeleteOp.getInstance());
-      opInstances.put(OP_MKDIR, MkdirOp.getInstance());
-      opInstances.put(OP_SET_GENSTAMP, SetGenstampOp.getInstance());
-      opInstances.put(OP_DATANODE_ADD, DatanodeAddOp.getInstance());
-      opInstances.put(OP_DATANODE_REMOVE, DatanodeRemoveOp.getInstance());
-      opInstances.put(OP_SET_PERMISSIONS, SetPermissionsOp.getInstance());
-      opInstances.put(OP_SET_OWNER, SetOwnerOp.getInstance());
-      opInstances.put(OP_SET_NS_QUOTA, SetNSQuotaOp.getInstance());
-      opInstances.put(OP_CLEAR_NS_QUOTA, ClearNSQuotaOp.getInstance());
-      opInstances.put(OP_SET_QUOTA, SetQuotaOp.getInstance());
-      opInstances.put(OP_TIMES, TimesOp.getInstance());
-      opInstances.put(OP_SYMLINK, SymlinkOp.getInstance());
-      opInstances.put(OP_RENAME, RenameOp.getInstance());
-      opInstances.put(OP_REASSIGN_LEASE, ReassignLeaseOp.getInstance());
-      opInstances.put(OP_GET_DELEGATION_TOKEN, GetDelegationTokenOp.getInstance());
-      opInstances.put(OP_RENEW_DELEGATION_TOKEN, RenewDelegationTokenOp.getInstance());
-      opInstances.put(OP_CANCEL_DELEGATION_TOKEN,
-                      CancelDelegationTokenOp.getInstance());
-      opInstances.put(OP_UPDATE_MASTER_KEY, UpdateMasterKeyOp.getInstance());
-      opInstances.put(OP_CHECKPOINT_TIME, CheckpointTimeOp.getInstance());
     }
 
     /**
@@ -1565,7 +1408,7 @@ public abstract class FSEditLogOp {
         return null;
       }
 
-      FSEditLogOp op = opInstances.get(opCode);
+      FSEditLogOp op = opInstances.get().get(opCode);
       if (op == null) {
         throw new IOException("Read invalid opcode " + opCode);
       }
