@@ -33,6 +33,9 @@ class EditLogBackupInputStream extends EditLogInputStream {
   String address; // sender address 
   private ByteBufferInputStream inner;
   private DataInputStream in;
+  private FSEditLogOp.Reader reader = null;
+  private FSEditLogLoader.PositionTrackingInputStream tracker = null;
+  private int version = 0;
 
   /**
    * A ByteArrayInputStream, which lets modify the underlying byte array.
@@ -61,6 +64,11 @@ class EditLogBackupInputStream extends EditLogInputStream {
     address = name;
     inner = new ByteBufferInputStream();
     in = new DataInputStream(inner);
+
+    tracker = new FSEditLogLoader.PositionTrackingInputStream(in);
+    in = new DataInputStream(tracker);
+    
+    reader = null;
   }
 
   @Override // JournalStream
@@ -74,18 +82,21 @@ class EditLogBackupInputStream extends EditLogInputStream {
   }
 
   @Override
-  public int available() throws IOException {
-    return in.available();
+  public FSEditLogOp readOp() throws IOException {
+    if (reader == null) {
+      throw new IOException("No data available");
+    }
+    return reader.readOp();
   }
 
   @Override
-  public int read() throws IOException {
-    return in.read();
+  public int getVersion() throws IOException {
+    return this.version;
   }
 
   @Override
-  public int read(byte[] b, int off, int len) throws IOException {
-    return in.read(b, off, len);
+  public long getPosition() {
+    return tracker.getPos();
   }
 
   @Override
@@ -99,16 +110,19 @@ class EditLogBackupInputStream extends EditLogInputStream {
     return inner.length();
   }
 
-  DataInputStream getDataInputStream() {
-    return in;
-  }
-
-  void setBytes(byte[] newBytes) throws IOException {
+  void setBytes(byte[] newBytes, int version) throws IOException {
     inner.setData(newBytes);
     in.reset();
+    tracker.reset();
+    this.version = version;
+
+    reader = new FSEditLogOp.Reader(in, version,
+                                    null);
   }
 
   void clear() throws IOException {
-    setBytes(null);
+    setBytes(null, 0);
+    reader = null;
+    this.version = 0;
   }
 }

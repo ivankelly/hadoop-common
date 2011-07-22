@@ -21,6 +21,18 @@ package org.apache.hadoop.hdfs.server.namenode;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.FilterInputStream;
+import java.io.BufferedInputStream;
+import java.io.InputStream;
+import java.io.EOFException;
+import java.io.DataInputStream;
+import org.apache.hadoop.hdfs.protocol.FSConstants;
+import org.apache.hadoop.hdfs.protocol.LayoutVersion.Feature;
+import org.apache.hadoop.hdfs.protocol.LayoutVersion;
+import org.apache.hadoop.hdfs.server.common.Storage;
+
+import java.util.zip.CheckedInputStream;
+import java.util.zip.Checksum;
 
 /**
  * An implementation of the abstract class {@link EditLogInputStream}, which
@@ -29,10 +41,29 @@ import java.io.IOException;
 class EditLogFileInputStream extends EditLogInputStream {
   private File file;
   private FileInputStream fStream;
+  private int logVersion = 0;
+  private FSEditLogOp.Reader reader = null;
+  private FSEditLogLoader.PositionTrackingInputStream tracker = null;
 
   EditLogFileInputStream(File name) throws IOException {
     file = name;
     fStream = new FileInputStream(name);
+
+    BufferedInputStream bin = new BufferedInputStream(fStream);
+    DataInputStream in = new DataInputStream(bin);
+    logVersion = readLogVersion(in);
+
+    Checksum checksum = null;
+    if (LayoutVersion.supports(Feature.EDITS_CHESKUM, logVersion)) {
+      checksum = FSEditLog.getChecksum();
+      in = new DataInputStream(new CheckedInputStream(in, checksum));
+    }
+    
+    tracker = new FSEditLogLoader.PositionTrackingInputStream(in);
+    in = new DataInputStream(tracker);
+    
+    reader = new FSEditLogOp.Reader(in, logVersion,
+                                    checksum);
   }
 
   @Override // JournalStream
@@ -46,18 +77,18 @@ class EditLogFileInputStream extends EditLogInputStream {
   }
 
   @Override
-  public int available() throws IOException {
-    return fStream.available();
+  public FSEditLogOp readOp() throws IOException {
+    return reader.readOp();
   }
 
   @Override
-  public int read() throws IOException {
-    return fStream.read();
+  public int getVersion() throws IOException {
+    return logVersion;
   }
 
   @Override
-  public int read(byte[] b, int off, int len) throws IOException {
-    return fStream.read(b, off, len);
+  public long getPosition() {
+    return tracker.getPos();
   }
 
   @Override
@@ -76,4 +107,35 @@ class EditLogFileInputStream extends EditLogInputStream {
     return getName();
   }
 
+  /**
+   * Read the header of fsedit log
+   * @param in fsedit stream
+   * @return the edit log version number
+   * @throws IOException if error occurs
+   */
+  private int readLogVersion(DataInputStream in) throws IOException {
+    int logVersion = 0;
+    // Read log file version. Could be missing.
+    in.mark(4);
+    // If edits log is greater than 2G, available method will return negative
+    // numbers, so we avoid having to call available
+    boolean available = true;
+    try {
+      logVersion = in.readByte();
+    } catch (EOFException e) {
+      available = false;
+    }
+    if (available) {
+      in.reset();
+      logVersion = in.readInt();
+      if (logVersion < FSConstants.LAYOUT_VERSION) // future version
+        throw new IOException(
+            "Unexpected version of the file system log file: "
+            + logVersion + ". Current version = "
+            + FSConstants.LAYOUT_VERSION + ".");
+    }
+    assert logVersion <= Storage.LAST_UPGRADABLE_LAYOUT_VERSION :
+      "Unsupported version " + logVersion;
+    return logVersion;
+  }
 }

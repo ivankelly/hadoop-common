@@ -37,7 +37,6 @@ import org.apache.hadoop.hdfs.protocol.LayoutVersion.Feature;
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockInfo;
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockInfoUnderConstruction;
 import org.apache.hadoop.hdfs.server.common.Storage;
-import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.LogHeader;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.Reader;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.AddCloseOp;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.CancelDelegationTokenOp;
@@ -84,29 +83,25 @@ public class FSEditLogLoader {
   }
 
   int loadFSEdits(EditLogInputStream edits, boolean closeOnExit,
-      long expectedStartingTxId)
-  throws IOException {
-    BufferedInputStream bin = new BufferedInputStream(edits);
-    DataInputStream in = new DataInputStream(bin);
-
+                  long expectedStartingTxId)
+      throws IOException {
     int numEdits = 0;
+    int logVersion = edits.getVersion();
 
     try {
-      LogHeader header = LogHeader.read(in);
-      numEdits = loadEditRecords(
-          header.logVersion, in, header.checksum, false,
-          expectedStartingTxId);
+      numEdits = loadEditRecords(logVersion, edits, false, 
+                                 expectedStartingTxId);
     } finally {
-      if(closeOnExit)
-        in.close();
+      if(closeOnExit) {
+        edits.close();
+      }
     }
     
     return numEdits;
   }
 
   @SuppressWarnings("deprecation")
-  int loadEditRecords(int logVersion, DataInputStream in,
-                      Checksum checksum, boolean closeOnExit,
+  int loadEditRecords(int logVersion, EditLogInputStream in, boolean closeOnExit,
                       long expectedStartingTxId)
       throws IOException {
     FSDirectory fsDir = fsNamesys.dir;
@@ -123,10 +118,6 @@ public class FSEditLogLoader {
     fsNamesys.writeLock();
     fsDir.writeLock();
 
-    // Keep track of the file offsets of the last several opcodes.
-    // This is handy when manually recovering corrupted edits files.
-    PositionTrackingInputStream tracker = new PositionTrackingInputStream(in);
-    in = new DataInputStream(tracker);
     long recentOpcodeOffsets[] = new long[4];
     Arrays.fill(recentOpcodeOffsets, -1);
 
@@ -134,12 +125,10 @@ public class FSEditLogLoader {
       long txId = expectedStartingTxId - 1;
 
       try {
-        FSEditLogOp.Reader reader = new FSEditLogOp.Reader(in, logVersion,
-                                                           checksum);
         FSEditLogOp op;
-        while ((op = reader.readOp()) != null) {
+        while ((op = in.readOp()) != null) {
           recentOpcodeOffsets[numEdits % recentOpcodeOffsets.length] =
-              tracker.getPos();
+            in.getPosition();
           if (LayoutVersion.supports(Feature.STORED_TXIDS, logVersion)) {
             long thisTxId = op.txid;
             if (thisTxId != txId + 1) {
@@ -421,7 +410,7 @@ public class FSEditLogLoader {
       // Catch Throwable because in the case of a truly corrupt edits log, any
       // sort of error might be thrown (NumberFormat, NullPointer, EOF, etc.)
       StringBuilder sb = new StringBuilder();
-      sb.append("Error replaying edit log at offset " + tracker.getPos());
+      sb.append("Error replaying edit log at offset " + in.getPosition());
       if (recentOpcodeOffsets[0] != -1) {
         Arrays.sort(recentOpcodeOffsets);
         sb.append("\nRecent opcode offsets:");
@@ -478,8 +467,8 @@ public class FSEditLogLoader {
     } else {
       throw ex;
     }
-  }
-  
+  }  
+
   /**
    * Return the number of valid transactions in the file. If the file is
    * truncated during the header, returns a value indicating that there are
@@ -536,9 +525,9 @@ public class FSEditLogLoader {
   }
 
   /**
-   * Stream wrapper that keeps track of the current file position.
+   * Stream wrapper that keeps track of the current stream position.
    */
-  private static class PositionTrackingInputStream extends FilterInputStream {
+  static class PositionTrackingInputStream extends FilterInputStream {
     private long curPos = 0;
     private long markPos = -1;
 
