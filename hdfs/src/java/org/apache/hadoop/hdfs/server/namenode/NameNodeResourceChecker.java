@@ -81,6 +81,10 @@ public class NameNodeResourceChecker {
   private void addDirsToCheck(Collection<URI> directoriesToCheck)
       throws IOException {
     for (URI directoryUri : directoriesToCheck) {
+      if (!directoryUri.getScheme().equals("file")
+          || directoryUri.getScheme() == null) {
+        continue;
+      }
       File dir = new File(directoryUri.getPath());
       if (!dir.exists()) {
         throw new IOException("Missing directory "+dir.getAbsolutePath());

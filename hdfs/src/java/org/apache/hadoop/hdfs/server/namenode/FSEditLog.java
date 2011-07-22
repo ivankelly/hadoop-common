@@ -24,6 +24,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.zip.Checksum;
+import java.lang.reflect.Constructor;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -31,6 +32,7 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.fs.Options;
 import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DeprecatedUTF8;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
@@ -40,7 +42,6 @@ import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.JournalManager.CorruptionException;
-import org.apache.hadoop.hdfs.server.namenode.bkjournal.BookKeeperJournalManager;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
@@ -161,7 +162,9 @@ public class FSEditLog  {
     metrics = NameNode.getNameNodeMetrics();
     lastPrintTime = now();
     
-    if (editsDirs.isEmpty()) {
+    if (editsDirs.isEmpty()) { 
+      // if this is the case, no edit dirs have been explictly configured
+      // image dirs are to be used for edits too
       this.editsDirs = Lists.newArrayList(storage.getEditsDirectories());
     } else {
       this.editsDirs = Lists.newArrayList(editsDirs);
@@ -182,11 +185,9 @@ public class FSEditLog  {
       if (u.getScheme().equals("file")) {
         StorageDirectory sd = storage.getStorageDirectory(u);
         journals.add(new JournalAndStream(new FileJournalManager(sd)));
-      } else if (u.getScheme().equals("bookkeeper")) {
-        journals.add(new JournalAndStream(
-                         new BookKeeperJournalManager(u, conf)));
       } else {
-        throw new IllegalArgumentException("Unrecognised uri format " + u);
+        JournalManager jm = createJournal(u);
+        journals.add(new JournalAndStream(jm));
       }
     }
     
@@ -748,7 +749,7 @@ public class FSEditLog  {
   /**
    * @return the number of active (non-failed) journals
    */
-  private int countActiveJournals() {
+  int countActiveJournals() {
     int count = 0;
     for (JournalAndStream jas : journals) {
       if (jas.isActive()) {
@@ -1165,6 +1166,51 @@ public class FSEditLog  {
           toAtLeastTxId + " but could not find logs from " + fromTxId);
     }
     return streams;
+  }
+
+  /**
+   * Retrieve the implementation classname for a Journal scheme.
+   * @param conf The configuration to retrieve the information from
+   * @param uriScheme The uri scheme to look up.
+   * @return the classname of the journal implementation 
+   *    or null if nothing found.
+   */
+  static String getJournalClass(Configuration conf, 
+                                String uriScheme) {
+    String key = DFSConfigKeys.DFS_NAMENODE_EDITS_PLUGIN_BASE + "." + uriScheme;
+    String classname = conf.get(key);
+    if (classname == null) {
+      LOG.warn("No class configured for " +uriScheme + ", " + key + " is empty");
+    }
+    return classname;
+  }
+
+  /** 
+   * Construct a custom journal manager.
+   * The class to construct is taken from the configuration.
+   * @param uri Uri to construct
+   * @return The constructed journal manager
+   * @throws IllegalArgumentException if no class is configured for uri
+   */
+  private JournalManager createJournal(URI uri) {
+    String classname = getJournalClass(conf, uri.getScheme());
+    
+    if (classname != null) {
+      try {
+        Class <? extends JournalManager> cls
+          = Class.forName(classname).asSubclass(
+              JournalManager.class);
+        Constructor<? extends JournalManager> cons
+          = cls.getConstructor(Configuration.class, URI.class);
+        
+        return cons.newInstance(conf, uri);
+      } catch (Exception e) {
+        throw new IllegalArgumentException("Unable to construct journal, " 
+                                           + uri, e);
+      }
+    } else {
+      throw new IllegalArgumentException("No class configured for " + uri);
+    }
   }
 
   /**

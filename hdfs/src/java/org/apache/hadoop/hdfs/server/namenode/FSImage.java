@@ -88,7 +88,6 @@ public class FSImage implements Closeable {
   private Collection<URI> checkpointDirs;
   private Collection<URI> checkpointEditsDirs;
 
-  final private Collection<URI> editsDirs;
   final private Configuration conf;
 
   private final NNStorageArchivalManager archivalManager; 
@@ -133,12 +132,12 @@ public class FSImage implements Closeable {
                     Collection<URI> imageDirs, Collection<URI> editsDirs)
       throws IOException {
     this.conf = conf;
-    this.editsDirs = Lists.newArrayList(editsDirs);
 
     setCheckpointDirectories(FSImage.getCheckpointDirs(conf, null),
                              FSImage.getCheckpointEditsDirs(conf, null));
 
-    storage = new NNStorage(conf, imageDirs, editsDirs);
+    storage = new NNStorage(conf, imageDirs, 
+                            Lists.newArrayList(editsDirs));
     if (ns != null) {
       storage.setUpgradeManager(ns.upgradeManager);
     }
@@ -148,7 +147,8 @@ public class FSImage implements Closeable {
       storage.setRestoreFailedStorage(true);
     }
 
-    this.editLog = new FSEditLog(conf, storage, editsDirs);
+    this.editLog = new FSEditLog(conf, storage, 
+                                 Lists.newArrayList(editsDirs));
     setFSNamesystem(ns);
     
     archivalManager = new NNStorageArchivalManager(conf, storage, editLog);
@@ -191,11 +191,11 @@ public class FSImage implements Closeable {
       "NameNode formatting should be performed before reading the image";
     
     Collection<URI> imageDirs = storage.getImageDirectories();
-    Collection<URI> editsDirs = storage.getEditsDirectories();
 
     // none of the data dirs exist
-    if((imageDirs.size() == 0 || editsDirs.size() == 0) 
-                             && startOpt != StartupOption.IMPORT)  
+    if((imageDirs.size() == 0 
+        || editLog.countActiveJournals() == 0)
+        && startOpt != StartupOption.IMPORT)
       throw new IOException(
           "All specified directories are not accessible or do not exist.");
     
