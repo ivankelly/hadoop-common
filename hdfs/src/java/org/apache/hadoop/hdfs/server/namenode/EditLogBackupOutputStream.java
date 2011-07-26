@@ -51,7 +51,7 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
   private DataOutputBuffer out;     // serialized output sent to backup node
 
   
-  private class BufferedOp { 
+  private static class BufferedOp { 
     public final FSEditLogOpCodes opCode;
     public final byte[] bytes;
 
