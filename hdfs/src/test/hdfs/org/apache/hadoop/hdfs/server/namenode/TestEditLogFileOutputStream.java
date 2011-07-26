@@ -85,9 +85,9 @@ public class TestEditLogFileOutputStream {
     }
 
     long oldLength = validation.getValidLength();
-    validation = FSEditLogLoader.validateEditLog(editLog);
+    validation = FSEditLogLoader.validateEditLog(edits);
     assertTrue("Edit log should have more valid data after writing a txn " +
-        "(was: " + oldLength + " now: " + validation.validLength + ")",
+        "(was: " + oldLength + " now: " + validation.getValidLength() + ")",
         validation.getValidLength() > oldLength);
     assertEquals(2, validation.getNumTransactions());
 

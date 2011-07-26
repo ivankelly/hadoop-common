@@ -1176,7 +1176,8 @@ public class FSEditLog  {
       stream = null;
     }
     
-    private void abort() {
+    @VisibleForTesting
+    void abort() {
       if (stream == null) return;
       try {
         stream.abort();

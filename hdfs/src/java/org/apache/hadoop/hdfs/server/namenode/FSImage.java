@@ -600,7 +600,8 @@ public class FSImage implements Closeable {
       editStreams = editLog.selectInputStreams(imageFile.getCheckpointTxId() + 1,
                                                inspector.getMaxSeenTxId());
     } else {
-      editStreams = FSImageOldStorageInspector.getEditLogStreams(storage);
+      editStreams = FSImagePreTransactionalStorageInspector
+        .getEditLogStreams(storage);
     }
 
     LOG.debug("Planning to load image :\n" + imageFile);

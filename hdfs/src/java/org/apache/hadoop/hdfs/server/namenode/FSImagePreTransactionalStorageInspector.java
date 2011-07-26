@@ -188,7 +188,8 @@ class FSImagePreTransactionalStorageInspector extends FSImageStorageInspector {
 
   static Iterable<EditLogInputStream> getEditLogStreams(NNStorage storage)
       throws IOException {
-    FSImageOldStorageInspector inspector = new FSImageOldStorageInspector();
+    FSImagePreTransactionalStorageInspector inspector 
+      = new FSImagePreTransactionalStorageInspector();
     storage.inspectStorageDirs(inspector);
 
     List<EditLogInputStream> editStreams = new ArrayList<EditLogInputStream>();
