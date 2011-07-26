@@ -45,6 +45,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
   private FileChannel fc; // channel of the file stream for sync
   private DataOutputBuffer bufCurrent; // current buffer for writing
   private DataOutputBuffer bufReady; // buffer ready for flushing
+  private FSEditLogOp.Writer writer;
   final private int initBufferSize; // inital buffer size
   static ByteBuffer fill = ByteBuffer.allocateDirect(1024 * 1024); // preallocation, 1MB
 
@@ -70,6 +71,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
     initBufferSize = size;
     bufCurrent = new DataOutputBuffer(size);
     bufReady = new DataOutputBuffer(size);
+    writer = new FSEditLogOp.Writer(bufCurrent);
     RandomAccessFile rp = new RandomAccessFile(name, "rw");
     fp = new FileOutputStream(rp.getFD()); // open for append
     fc = rp.getChannel();
@@ -91,7 +93,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
   void write(FSEditLogOp op) throws IOException {
     int start = bufCurrent.getLength();
     
-    op.writeFields(bufCurrent);
+    writer.writeOp(op);
 
     // write transaction checksum
     int end = bufCurrent.getLength();
@@ -135,6 +137,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
         }
         bufCurrent.close();
         bufCurrent = null;
+        writer = null;
       }
   
       if(bufReady != null) {
@@ -155,6 +158,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
     } finally {
       IOUtils.cleanup(FSNamesystem.LOG, bufCurrent, bufReady, fc, fp);
       bufCurrent = bufReady = null;
+      writer = null;
       fc = null;
       fp = null;
     }
@@ -171,6 +175,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
     DataOutputBuffer tmp = bufReady;
     bufReady = bufCurrent;
     bufCurrent = tmp;
+    writer = new FSEditLogOp.Writer(bufCurrent);
   }
 
   /**

@@ -97,7 +97,8 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
   void write(FSEditLogOp op) throws IOException {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     DataOutputStream s = new DataOutputStream(baos);
-    op.writeFields(s);
+    FSEditLogOp.Writer w = new FSEditLogOp.Writer(s);
+    w.writeOp(op);
 
     bufCurrent.add(new BufferedOp(op.opCode, baos.toByteArray()));
   }

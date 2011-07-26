@@ -585,7 +585,7 @@ public class FSEditLog implements NNStorageListener {
    * Records the block locations of the last block.
    */
   public void logOpenFile(String path, INodeFileUnderConstruction newNode) {
-    AddCloseOp op = AddOp.getInstance()
+    AddOp op = AddOp.getInstance()
       .setPath(path)
       .setReplication(newNode.getReplication())
       .setModificationTime(newNode.getModificationTime())
@@ -596,14 +596,14 @@ public class FSEditLog implements NNStorageListener {
       .setClientName(newNode.getClientName())
       .setClientMachine(newNode.getClientMachine());
     
-    logEdit(op);
+      logEdit(op);
   }
 
   /** 
    * Add close lease record to edit log.
    */
   public void logCloseFile(String path, INodeFile newNode) {
-    AddCloseOp op = CloseOp.getInstance()
+    CloseOp op = CloseOp.getInstance()
       .setPath(path)
       .setReplication(newNode.getReplication())
       .setModificationTime(newNode.getModificationTime())
