@@ -245,7 +245,7 @@ class FileJournalManager implements JournalManager {
     
     EditLogFile elf = new EditLogFile(val.getStartTxId(), val.getEndTxId(), f, 
                                       true, val.getNumTransactions() == 0);
-    inProgressCache.putIfAbsent(f, elf);
+    elf = inProgressCache.putIfAbsent(f, elf);
 
     return elf;
   }
