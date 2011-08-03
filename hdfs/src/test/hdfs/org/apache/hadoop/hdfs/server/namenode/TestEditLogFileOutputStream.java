@@ -61,7 +61,8 @@ public class TestEditLogFileOutputStream {
       .getStorage().getStorageDir(0);
     File editLog = NNStorage.getInProgressEditsFile(sd, 1);
 
-    EditLogValidation validation = FSEditLogLoader.validateEditLog(editLog);
+    EditLogValidation validation = FSEditLogLoader.validateEditLog(
+        new EditLogFileInputStream(editLog));
     assertEquals("Edit log should contain a header as valid length",
         HEADER_LEN, validation.validLength);
     assertEquals(1, validation.numTransactions);
@@ -73,7 +74,8 @@ public class TestEditLogFileOutputStream {
         new FsPermission((short)777));
 
     long oldLength = validation.validLength;
-    validation = FSEditLogLoader.validateEditLog(editLog);
+    validation = FSEditLogLoader.validateEditLog(
+        new EditLogFileInputStream(editLog));
     assertTrue("Edit log should have more valid data after writing a txn " +
         "(was: " + oldLength + " now: " + validation.validLength + ")",
         validation.validLength > oldLength);

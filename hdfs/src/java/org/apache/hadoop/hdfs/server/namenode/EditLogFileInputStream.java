@@ -31,6 +31,8 @@ import org.apache.hadoop.hdfs.protocol.LayoutVersion.Feature;
 import org.apache.hadoop.hdfs.protocol.LayoutVersion;
 import org.apache.hadoop.hdfs.server.common.Storage;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import java.util.zip.CheckedInputStream;
 import java.util.zip.Checksum;
 
@@ -53,17 +55,10 @@ class EditLogFileInputStream extends EditLogInputStream {
     DataInputStream in = new DataInputStream(bin);
     logVersion = readLogVersion(in);
 
-    Checksum checksum = null;
-    if (LayoutVersion.supports(Feature.EDITS_CHESKUM, logVersion)) {
-      checksum = FSEditLog.getChecksum();
-      in = new DataInputStream(new CheckedInputStream(in, checksum));
-    }
-    
     tracker = new FSEditLogLoader.PositionTrackingInputStream(in);
     in = new DataInputStream(tracker);
     
-    reader = new FSEditLogOp.Reader(in, logVersion,
-                                    checksum);
+    reader = new FSEditLogOp.Reader(in, logVersion);
   }
 
   @Override // JournalStream
@@ -113,7 +108,8 @@ class EditLogFileInputStream extends EditLogInputStream {
    * @return the edit log version number
    * @throws IOException if error occurs
    */
-  private int readLogVersion(DataInputStream in) throws IOException {
+  @VisibleForTesting
+  static int readLogVersion(DataInputStream in) throws IOException {
     int logVersion = 0;
     // Read log file version. Could be missing.
     in.mark(4);

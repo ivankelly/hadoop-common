@@ -210,9 +210,10 @@ public class BackupImage extends FSImage {
       if (LOG.isTraceEnabled()) {
         LOG.debug("data:" + StringUtils.byteToHexString(data));
       }
-      backupInputStream.setBytes(data);
+
       FSEditLogLoader logLoader = new FSEditLogLoader(namesystem);
       int logVersion = storage.getLayoutVersion();
+      backupInputStream.setBytes(data, logVersion);
 
       int numLoaded = logLoader.loadEditRecords(logVersion, backupInputStream, 
                                                 true, lastAppliedTxId + 1);
@@ -289,7 +290,7 @@ public class BackupImage extends FSImage {
           "expected to load " + remainingTxns + " but loaded " +
           numLoaded + " from " + stream;
       } finally {
-        IOUtils.closeStream(stream);
+        stream.close();
       }
 
       LOG.info("Successfully synced BackupNode with NameNode at txnid " +

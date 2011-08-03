@@ -63,11 +63,7 @@ class EditLogBackupInputStream extends EditLogInputStream {
   EditLogBackupInputStream(String name) throws IOException {
     address = name;
     inner = new ByteBufferInputStream();
-    in = new DataInputStream(inner);
-
-    tracker = new FSEditLogLoader.PositionTrackingInputStream(in);
-    in = new DataInputStream(tracker);
-    
+    in = null;
     reader = null;
   }
 
@@ -112,12 +108,13 @@ class EditLogBackupInputStream extends EditLogInputStream {
 
   void setBytes(byte[] newBytes, int version) throws IOException {
     inner.setData(newBytes);
-    in.reset();
-    tracker.reset();
+    in = new DataInputStream(inner);
+    tracker = new FSEditLogLoader.PositionTrackingInputStream(in);
+    in = new DataInputStream(tracker);
+
     this.version = version;
 
-    reader = new FSEditLogOp.Reader(in, version,
-                                    null);
+    reader = new FSEditLogOp.Reader(in, version);
   }
 
   void clear() throws IOException {

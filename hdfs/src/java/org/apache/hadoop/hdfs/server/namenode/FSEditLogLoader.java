@@ -470,34 +470,21 @@ public class FSEditLogLoader {
   }  
 
   /**
-   * Return the number of valid transactions in the file. If the file is
+   * Return the number of valid transactions in the stream. If the stream is
    * truncated during the header, returns a value indicating that there are
    * 0 valid transactions.
-   * @throws IOException if the file cannot be read due to an IO error (eg
+   * @throws IOException if the stream cannot be read due to an IO error (eg
    *                     if the log does not exist)
    */
-  static EditLogValidation validateEditLog(File f) throws IOException {
-    FileInputStream fis = new FileInputStream(f);
+  static EditLogValidation validateEditLog(EditLogInputStream in) 
+      throws IOException {
     try {
-      PositionTrackingInputStream tracker = new PositionTrackingInputStream(
-          new BufferedInputStream(fis));
-      DataInputStream dis = new DataInputStream(tracker);
-      LogHeader header; 
-      try {
-        header = LogHeader.read(dis);
-      } catch (Throwable t) {
-        FSImage.LOG.debug("Unable to read header from " + f +
-            " -> no valid transactions in this file.");
-        return new EditLogValidation(0, 0);
-      }
-      
-      Reader reader = new FSEditLogOp.Reader(dis, header.logVersion, header.checksum);
       long numValid = 0;
       long lastPos = 0;
       try {
         while (true) {
-          lastPos = tracker.getPos();
-          if (reader.readOp() == null) {
+          lastPos = in.getPosition();
+          if (in.readOp() == null) {
             break;
           }
           numValid++;
@@ -506,11 +493,11 @@ public class FSEditLogLoader {
         // Catch Throwable and not just IOE, since bad edits may generate
         // NumberFormatExceptions, AssertionErrors, OutOfMemoryErrors, etc.
         FSImage.LOG.debug("Caught exception after reading " + numValid +
-            " ops from " + f + " while determining its valid length.", t);
+            " ops from " + in + " while determining its valid length.", t);
       }
       return new EditLogValidation(lastPos, numValid);
     } finally {
-      fis.close();
+      in.close();
     }
   }
   

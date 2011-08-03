@@ -36,6 +36,7 @@ import org.apache.hadoop.hdfs.protocol.LayoutVersion.Feature;
 import org.apache.hadoop.hdfs.server.blockmanagement.DatanodeDescriptor;
 import org.apache.hadoop.hdfs.server.common.GenerationStamp;
 import org.apache.hadoop.hdfs.server.common.Storage;
+import org.apache.hadoop.util.PureJavaCrc32;
 
 import static org.apache.hadoop.hdfs.server.namenode.FSEditLogOpCodes.*;
 import org.apache.hadoop.security.token.delegation.DelegationKey;
@@ -1329,9 +1330,11 @@ public abstract class FSEditLogOp {
    */
   public static class Writer {
     private final DataOutputBuffer buf;
+    private final Checksum checksum;
 
     public Writer(DataOutputBuffer out) {
       this.buf = out;
+      this.checksum = new PureJavaCrc32();
     }
 
     /**
@@ -1346,7 +1349,6 @@ public abstract class FSEditLogOp {
       buf.writeLong(op.txid);
       op.writeFields(buf);
       int end = buf.getLength();
-      Checksum checksum = FSEditLog.getChecksum();
       checksum.reset();
       checksum.update(buf.getData(), start, end-start);
       int sum = (int)checksum.getValue();
@@ -1372,7 +1374,7 @@ public abstract class FSEditLogOp {
     public Reader(DataInputStream in, int logVersion) {
       this.logVersion = logVersion;
       if (LayoutVersion.supports(Feature.EDITS_CHESKUM, logVersion)) {
-        this.checksum = FSEditLog.getChecksum();
+        this.checksum = new PureJavaCrc32();
       } else {
         this.checksum = null;
       }
