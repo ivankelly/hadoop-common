@@ -20,6 +20,7 @@ package org.apache.hadoop.hdfs.server.namenode;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
+import java.util.ArrayList;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -38,6 +39,7 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorageRetentionManager.StorageP
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
+import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Writable;
@@ -133,12 +135,14 @@ public class FSEditLog  {
     this.storage = storage;
     metrics = NameNode.getNameNodeMetrics();
     lastPrintTime = now();
+    
+    initJournals();
   }
   
   /**
    * Initialize the list of edit journals
    */
-  synchronized void initJournals() {
+  private synchronized void initJournals() {
     assert journals.isEmpty();
     Preconditions.checkState(state == State.UNINITIALIZED,
         "Bad state: %s", state);
@@ -159,8 +163,7 @@ public class FSEditLog  {
    * log segment.
    */
   synchronized void open() throws IOException {
-    Preconditions.checkState(state == State.UNINITIALIZED);
-    initJournals();
+    Preconditions.checkState(state == State.BETWEEN_LOG_SEGMENTS);
 
     startLogSegment(getLastWrittenTxId() + 1, true);
     assert state == State.IN_SEGMENT : "Bad state: " + state;
@@ -740,18 +743,57 @@ public class FSEditLog  {
   /**
    * Return a manifest of what finalized edit logs are available
    */
-  public RemoteEditLogManifest getEditLogManifest(long sinceTxId)
+  public RemoteEditLogManifest getEditLogManifest(long fromTxId)
       throws IOException {
-    FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
-
-    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
-      inspector.inspectDirectory(sd);
+    List<RemoteEditLog> logs = new ArrayList<RemoteEditLog>();
+    List<FileJournalManager> fjs = new ArrayList<FileJournalManager>();
+    for (JournalAndStream j : journals) {
+      if (j.getManager() instanceof FileJournalManager) {
+        fjs.add((FileJournalManager)j.getManager());
+      }
     }
     
-    return inspector.getEditLogManifest(sinceTxId);
+    RemoteEditLog bestlog = null;
+    do {
+      bestlog = null;
+
+      /* Loop through all file journal managers
+         trying to find all segments greater than fromTxId.
+         The segments returned by getRemoteEditLog may not necessarily
+         start from fromTxId. Because of this we check if candidates
+         have a lower start tx id than the current best segment [1]
+         We also ensure that we try to get the longest segments as some 
+         segments the same first tx id may have different lengths[2], as
+         in the case that one of the journals failed. */
+      for (FileJournalManager fj : fjs) {
+        try {
+          RemoteEditLog candidate = fj.getRemoteEditLog(fromTxId); 
+          if (candidate == null) {
+            continue;
+          }
+
+          if (bestlog == null) {
+            bestlog = candidate;
+          } else if (candidate.getStartTxId() < bestlog.getStartTxId()) {// [1]
+            bestlog = candidate;
+          } else if ((candidate.getStartTxId() == bestlog.getStartTxId())
+              && (candidate.getEndTxId() > bestlog.getEndTxId())) {// [2]
+            bestlog = candidate;
+          }
+        } catch (IOException ioe) {
+          LOG.warn("Cannot find remote edit log for " + fromTxId 
+                   + " in journal " + fj);
+        }
+      }
+      if (bestlog != null) {
+        logs.add(bestlog);
+        fromTxId = bestlog.getEndTxId() + 1;
+      } 
+    } while (bestlog != null);
+    
+    return new RemoteEditLogManifest(logs);
   }
-  
+ 
   /**
    * Finalizes the current edit log and opens a new log segment.
    * @return the transaction id of the BEGIN_LOG_SEGMENT transaction
@@ -1064,7 +1106,8 @@ public class FSEditLog  {
       stream = null;
     }
     
-    private void abort() {
+    @VisibleForTesting
+    void abort() {
       if (stream == null) return;
       try {
         stream.abort();

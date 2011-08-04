@@ -23,6 +23,8 @@ import org.apache.commons.logging.LogFactory;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -32,6 +34,7 @@ import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.NNStorageRetentionManager.StoragePurger;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogLoader.EditLogValidation;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -124,6 +127,48 @@ class FileJournalManager implements JournalManager {
       throws IOException {
     File f = NNStorage.getInProgressEditsFile(sd, segmentStartsAtTxId);
     return new EditLogFileInputStream(f);
+  }
+  
+  /**
+   * Find a the earliest editlog segment after fromTxId.
+   * @param fromTxId The txnid which the first txid of the selected segment 
+   *                 must be greater than.
+   * @return a remote edit log spec, with a first txid greater than fromTxId. 
+   *      null if not found.
+   * @throws IOException is edit logs cannot be listed.
+   */
+  RemoteEditLog getRemoteEditLog(long fromTxId) throws IOException {
+    List<EditLogFile> logs = getLogFiles(fromTxId);
+    if (logs != null && logs.size() > 0) {
+      EditLogFile elf = logs.get(0);
+      if (elf.isInProgress()) {
+        return null;
+      }
+      return new RemoteEditLog(elf.getFirstTxId(),
+                               elf.getLastTxId());
+    }
+    return null;
+  }
+  
+  private List<EditLogFile> getLogFiles(long fromTxId) throws IOException {
+    File currentDir = sd.getCurrentDir();
+    List<EditLogFile> allLogFiles = matchEditLogs(currentDir.listFiles());
+    List<EditLogFile> logFiles = new ArrayList<EditLogFile>();
+    
+    for (EditLogFile elf : allLogFiles) {
+      if (fromTxId > elf.getFirstTxId()
+          && fromTxId <= elf.getLastTxId()) {
+        throw new IOException("Asked for fromTxId " + fromTxId
+            + " which is in middle of file " + elf.file);
+      }
+      if (fromTxId <= elf.getFirstTxId()) {
+        logFiles.add(elf);
+      }
+    }
+    
+    Collections.sort(logFiles, EditLogFile.COMPARE_BY_START_TXID);
+
+    return logFiles;
   }
 
   static List<EditLogFile> matchEditLogs(File[] filesInStorage) {

@@ -22,6 +22,10 @@ import java.io.*;
 import java.net.URI;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Arrays;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -49,6 +53,9 @@ import org.apache.log4j.Level;
 import org.aspectj.util.FileUtil;
 
 import org.mockito.Mockito;
+import org.junit.Test;
+
+import com.google.common.collect.ImmutableList;
 
 import static org.apache.hadoop.test.MetricsAsserts.*;
 
@@ -744,5 +751,163 @@ public class TestEditLog extends TestCase {
       logDir.setWritable(true);
       log.close();
     }
+  }
+
+
+  /** 
+   * Specification for a failure during #setupEdits
+   */
+  static class AbortSpec {
+    final int roll;
+    final int logindex;
+    
+    /**
+     * Construct the failure specification. 
+     * @param roll number to fail after. e.g. 1 to fail after the first roll
+     * @param loginfo index of journal to fail. 
+     */
+    AbortSpec(int roll, int logindex) {
+      this.roll = roll;
+      this.logindex = logindex;
+    }
+  }
+
+  final static int TXNS_PER_ROLL = 4;  
+  final static int TXNS_PER_FAIL = 2;
+    
+  /**
+   * Set up directories for tests. 
+   *
+   * Each rolled file is 4 txns long. 
+   * A failed file is 2 txns long.
+   * 
+   * @param editUris directories to create edit logs in
+   * @param numrolls number of times to roll the edit log during setup
+   * @param abortAtRolls Specifications for when to fail, see AbortSpec
+   */
+  public static NNStorage setupEdits(List<URI> editUris, int numrolls, 
+                                     AbortSpec... abortAtRolls)
+      throws IOException {
+    List<AbortSpec> aborts = new ArrayList<AbortSpec>(Arrays.asList(abortAtRolls));
+    NNStorage storage = new NNStorage(new Configuration(),
+                                      Collections.<URI>emptyList(),
+                                      editUris);
+    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
+      storage.format(sd);
+    }
+    FSEditLog editlog = new FSEditLog(storage);    
+    // open the edit log and add two transactions
+    // logGenerationStamp is used, simply because it doesn't 
+    // require complex arguments.
+    editlog.open();
+    editlog.logGenerationStamp((long)0);
+    editlog.logGenerationStamp((long)0);
+    editlog.logSync();
+    
+    // Go into edit log rolling loop.
+    // On each roll, the abortAtRolls abort specs are 
+    // checked to see if an abort is required. If so the 
+    // the specified journal is aborted. It will be brought
+    // back into rotation automatically by rollEditLog
+    for (int i = 0; i < numrolls; i++) {
+      editlog.rollEditLog();
+      
+      editlog.logGenerationStamp((long)i);
+      editlog.logSync();
+
+      while (aborts.size() > 0 
+             && aborts.get(0).roll == (i+1)) {
+        AbortSpec spec = aborts.remove(0);
+        editlog.getJournals().get(spec.logindex).abort();
+      } 
+      
+      editlog.logGenerationStamp((long)i);
+      editlog.logSync();
+    }
+    editlog.close();
+
+    return storage;
+  }
+
+
+  /**
+   * Test that the editlog returns a manifest matching the rolls
+   * from the setup. There are 3 edit log directories, and no failures.
+   * Test that getEditLogManifest returns the right thing no matter how 
+   * many transactions we request.
+   */
+  @Test
+  public void testEditLogManifest() throws IOException {
+    File f1 = new File(TEST_DIR + "/manifest0");
+    File f2 = new File(TEST_DIR + "/manifest1");
+    File f3 = new File(TEST_DIR + "/manifest2");
+
+    List<URI> editUris = ImmutableList.of(f1.toURI(), f2.toURI(), f3.toURI());
+
+    NNStorage storage = setupEdits(editUris, 3);
+
+    storage = new NNStorage(new Configuration(),
+                            Collections.<URI>emptyList(),
+                            editUris);
+    FSEditLog editlog = new FSEditLog(storage);
+    assertEquals(String.format("[[%d,%d], [%d,%d], [%d,%d], [%d,%d]]", 
+                               1, TXNS_PER_ROLL, TXNS_PER_ROLL+1, TXNS_PER_ROLL*2,
+                               (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest(1).toString());
+    assertEquals(String.format("[[%d,%d], [%d,%d], [%d,%d]]", 
+                               TXNS_PER_ROLL+1, TXNS_PER_ROLL*2,
+                               (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest(TXNS_PER_ROLL+1).toString());
+    assertEquals(String.format("[[%d,%d], [%d,%d]]", 
+                               (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest((TXNS_PER_ROLL*2)+1).toString());
+    assertEquals(String.format("[[%d,%d]]", 
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest((TXNS_PER_ROLL*3)+1).toString());
+
+    // test request for txns in the middle of a segment
+    assertEquals("[]",
+                 editlog.getEditLogManifest((TXNS_PER_ROLL*2)+2).toString());
+  }
+
+  /**
+   * Test how getEditLogManifest reacts to inprogress files. The first of the 
+   * two edit log directories fails after the last roll, so is left with an 
+   * inprogress file. getEditLogManifest should ignore this as the finalised
+   * file is available in the second directory.
+   */
+  @Test
+  public void testEditLogInprogressComesFirst() throws IOException {
+    File f1 = new File(TEST_DIR + "/manifest0");
+    File f2 = new File(TEST_DIR + "/manifest1");
+
+    List<URI> editUris = ImmutableList.of(f1.toURI(), f2.toURI());
+    NNStorage storage = setupEdits(editUris, 3, 
+                                   new AbortSpec(3, 0));
+
+    storage = new NNStorage(new Configuration(),
+                            Collections.<URI>emptyList(),
+                            editUris);
+    FSEditLog editlog = new FSEditLog(storage);
+    assertEquals(String.format("[[%d,%d], [%d,%d], [%d,%d], [%d,%d]]", 
+                               1, TXNS_PER_ROLL, TXNS_PER_ROLL+1, TXNS_PER_ROLL*2,
+                               (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest(1).toString());
+    assertEquals(String.format("[[%d,%d], [%d,%d], [%d,%d]]", 
+                               TXNS_PER_ROLL+1, TXNS_PER_ROLL*2,
+                               (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest(TXNS_PER_ROLL+1).toString());
+    assertEquals(String.format("[[%d,%d], [%d,%d]]", 
+                               (TXNS_PER_ROLL*2)+1, TXNS_PER_ROLL*3,
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest((TXNS_PER_ROLL*2)+1).toString());
+    assertEquals(String.format("[[%d,%d]]", 
+                               (TXNS_PER_ROLL*3)+1, TXNS_PER_ROLL*4),
+                 editlog.getEditLogManifest((TXNS_PER_ROLL*3)+1).toString());
   }
 }

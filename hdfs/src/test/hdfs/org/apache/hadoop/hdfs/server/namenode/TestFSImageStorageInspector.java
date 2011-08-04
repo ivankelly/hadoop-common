@@ -364,43 +364,8 @@ public class TestFSImageStorageInspector {
     assertArrayEquals(new File[] {
         new File("/foo3/current/" + getInProgressEditsFileName(457))
       }, plan.getEditsFiles().toArray(new File[0]));
-
-    // Check log manifest
-    assertEquals("[[123,456]]", inspector.getEditLogManifest(123).toString());
-    assertEquals("[[123,456]]", inspector.getEditLogManifest(456).toString());
-    assertEquals("[]", inspector.getEditLogManifest(457).toString());
   }
   
-  @Test
-  public void testLogManifest() throws IOException { 
-    FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
-    inspector.inspectDirectory(
-        mockDirectoryWithEditLogs("/foo1/current/" 
-                                  + getFinalizedEditsFileName(1,1),
-                                  "/foo1/current/"
-                                  + getFinalizedEditsFileName(2,200)));
-    inspector.inspectDirectory(
-        mockDirectoryWithEditLogs("/foo2/current/" 
-                                  + getInProgressEditsFileName(1),
-                                  "/foo2/current/"
-                                  + getFinalizedEditsFileName(201, 400)));
-    inspector.inspectDirectory(
-        mockDirectoryWithEditLogs("/foo3/current/"
-                                  + getFinalizedEditsFileName(1, 1),
-                                  "/foo3/current/"
-                                  + getFinalizedEditsFileName(2,200)));
-    
-    assertEquals("[[1,1], [2,200], [201,400]]",
-                 inspector.getEditLogManifest(1).toString());
-    assertEquals("[[2,200], [201,400]]",
-                 inspector.getEditLogManifest(2).toString());
-    assertEquals("[[2,200], [201,400]]",
-                 inspector.getEditLogManifest(10).toString());
-    assertEquals("[[201,400]]",
-                 inspector.getEditLogManifest(201).toString());
-  }  
-
   /**
    * Test case where an in-progress log is in an earlier name directory
    * than a finalized log. Previously, getEditLogManifest wouldn't
@@ -426,9 +391,6 @@ public class TestFSImageStorageInspector {
                                   + getFinalizedEditsFileName(2626,2627),
                                   "/foo2/current/"
                                   + getFinalizedEditsFileName(2628,2629)));
-    
-    assertEquals("[[2622,2623], [2624,2625], [2626,2627], [2628,2629]]",
-                 inspector.getEditLogManifest(2621).toString());
   }  
   
   private StorageDirectory mockDirectoryWithEditLogs(String... fileNames) {
