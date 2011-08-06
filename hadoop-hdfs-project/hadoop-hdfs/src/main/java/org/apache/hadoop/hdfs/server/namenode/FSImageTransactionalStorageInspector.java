@@ -57,7 +57,7 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
   List<FSImageFile> foundImages = new ArrayList<FSImageFile>();
   List<EditLogFile> foundEditLogs = new ArrayList<EditLogFile>();
   SortedMap<Long, LogGroup> logGroups = new TreeMap<Long, LogGroup>();
-  long maxSeenTxId = 0;
+  private long maxSeenTxId = 0;
   
   private static final Pattern IMAGE_REGEX = Pattern.compile(
     NameNodeFile.IMAGE.getName() + "_(\\d+)");
@@ -71,6 +71,8 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
       return;
     }
     
+    maxSeenTxId = Math.max(maxSeenTxId, NNStorage.readTransactionIdFile(sd));
+
     File currentDir = sd.getCurrentDir();
     File filesInStorage[];
     try {
@@ -267,7 +269,12 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
   public boolean needToSave() {
     return needToSave;
   }
-  
+
+  @Override
+  long getMaxSeenTxId() {
+    return maxSeenTxId;
+  }
+
   /**
    * A group of logs that all start at the same txid.
    * 
@@ -393,7 +400,7 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
       if (logs.size() == 1) {
         // Only one log, it's our only choice!
         EditLogFile log = logs.get(0);
-        if (log.validateLog().numTransactions == 0) {
+        if (log.validateLog().getNumTransactions() == 0) {
           // If it has no transactions, we should consider it corrupt just
           // to be conservative.
           // See comment below for similar case
@@ -406,15 +413,15 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
 
       long maxValidTxnCount = Long.MIN_VALUE;
       for (EditLogFile log : logs) {
-        long validTxnCount = log.validateLog().numTransactions;
+        long validTxnCount = log.validateLog().getNumTransactions();
         LOG.warn("  Log " + log.getFile() +
             " valid txns=" + validTxnCount +
-            " valid len=" + log.validateLog().validLength);
+            " valid len=" + log.validateLog().getValidLength());
         maxValidTxnCount = Math.max(maxValidTxnCount, validTxnCount);
       }        
 
       for (EditLogFile log : logs) {
-        long txns = log.validateLog().numTransactions;
+        long txns = log.validateLog().getNumTransactions();
         if (txns < maxValidTxnCount) {
           LOG.warn("Marking log at " + log.getFile() + " as corrupt since " +
                    "it is has only " + txns + " valid txns whereas another " +

@@ -85,7 +85,7 @@ public class TestCheckPointForSecurityTokens {
         EditLogFile log = FSImageTestUtil.findLatestEditsLog(sd);
         assertTrue(log.isInProgress());
         assertEquals("In-progress log " + log + " should have 5 transactions",
-            5, log.validateLog().numTransactions);
+                     5, log.validateLog().getNumTransactions());
       }
 
       // Saving image in safe mode should succeed
@@ -100,7 +100,7 @@ public class TestCheckPointForSecurityTokens {
         EditLogFile log = FSImageTestUtil.findLatestEditsLog(sd);
         assertTrue(log.isInProgress());
         assertEquals("In-progress log " + log + " should only have START txn",
-            1, log.validateLog().numTransactions);
+            1, log.validateLog().getNumTransactions());
       }
 
       // restart cluster

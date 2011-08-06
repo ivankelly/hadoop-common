@@ -307,7 +307,8 @@ public class TestFSImageStorageInspector {
         if (log.getFile().getPath().equals(path)) {
           // mock out its validation
           EditLogFile spyLog = spy(log);
-          doReturn(new FSEditLogLoader.EditLogValidation(-1, numValidTransactions))
+          doReturn(new FSEditLogLoader.EditLogValidation(-1, 1, 
+                                                         numValidTransactions))
             .when(spyLog).validateLog();
           logs.set(i, spyLog);
           return;

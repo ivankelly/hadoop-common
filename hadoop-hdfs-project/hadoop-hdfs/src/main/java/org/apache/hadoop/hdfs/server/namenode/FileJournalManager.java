@@ -28,6 +28,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.hadoop.fs.FileUtil;
+import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.NNStorageRetentionManager.StoragePurger;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogLoader.EditLogValidation;
@@ -178,7 +179,7 @@ class FileJournalManager implements JournalManager {
         try {
           long startTxId = Long.valueOf(inProgressEditsMatch.group(1));
           ret.add(
-            new EditLogFile(f, startTxId, EditLogFile.UNKNOWN_END));
+              new EditLogFile(f, startTxId, FSConstants.INVALID_TXID, true));
         } catch (NumberFormatException nfe) {
           LOG.error("In-progress edits file " + f + " has improperly " +
                     "formatted transaction ID");
@@ -189,6 +190,115 @@ class FileJournalManager implements JournalManager {
     return ret;
   }
 
+  @Override
+  public EditLogInputStream getInputStream(long fromTxId) throws IOException {
+    for (EditLogFile elf : getLogFiles(fromTxId)) {
+      if (elf.getFirstTxId() == fromTxId) {
+        if (elf.isInProgress()) {
+          elf = countTransactionsInInprogress(elf.getFile());
+        }
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("Returning edit stream reading from " + elf.getFile());
+        }
+        return new EditLogFileInputStream(elf.getFile(), 
+            elf.getFirstTxId(), elf.getLastTxId());
+      }
+    }
+
+    throw new IOException("Cannot find editlog file with " + fromTxId
+        + " as first first txid");
+  }
+
+  @Override
+  public long getNumberOfTransactions(long fromTxId) 
+      throws IOException, CorruptionException {
+    long numTxns = 0L;
+    
+    for (EditLogFile elf : getLogFiles(fromTxId)) {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Counting " + elf);
+      }
+      if (elf.getFirstTxId() > fromTxId) { // there must be a gap
+        LOG.warn("Gap in transactions "
+            + fromTxId + " - " + (elf.getFirstTxId() - 1));
+      } else if (fromTxId == elf.getFirstTxId()) {
+        if (elf.isInProgress()) {
+          elf = countTransactionsInInprogress(elf.getFile());
+        } 
+
+        if (elf.isCorrupt()) {
+          break;
+        }
+        fromTxId = elf.getLastTxId() + 1;
+        numTxns += fromTxId - elf.getFirstTxId();
+        
+        if (elf.isInProgress()) {
+          break;
+        }
+      } // else skip
+    }
+
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Journal " + this + " has " + numTxns 
+                + " txns from " + fromTxId);
+    }
+
+    long max = getMaxLoadableTransaction();
+    if (numTxns == 0 && fromTxId <= max) { 
+      String error = String.format("Gap in transactions, max txnid is %d"
+          + ", 0 txns from %d", max, fromTxId);
+      LOG.error(error);
+      throw new CorruptionException(error);
+    }
+
+    return numTxns;
+  }
+
+  private long getMaxLoadableTransaction()
+      throws IOException {
+    long max = 0L;
+    for (EditLogFile elf : getLogFiles(0)) {
+      if (elf.isInProgress()) {
+        max = Math.max(elf.getFirstTxId(), max);
+        elf = countTransactionsInInprogress(elf.getFile());
+      }
+      max = Math.max(elf.getLastTxId(), max);
+    }
+    return max;
+  }
+
+  private void recoverUnclosedStreams() throws IOException {
+    File currentDir = sd.getCurrentDir();
+    List<EditLogFile> logFiles = matchEditLogs(currentDir.listFiles());
+    for (EditLogFile f : logFiles) {
+      if (f.isInProgress()) {
+        EditLogFile elf 
+          = countTransactionsInInprogress(f.getFile());;
+        
+        if (elf.isCorrupt()) {
+          elf.moveAsideCorruptFile();
+        } else {
+          finalizeLogSegment(elf.getFirstTxId(), elf.getLastTxId());
+        }
+      }
+    }
+  }
+
+  static EditLogFile countTransactionsInInprogress(File f) 
+      throws IOException {
+    EditLogFileInputStream edits = new EditLogFileInputStream(f);
+    FSEditLogLoader.EditLogValidation val 
+      = FSEditLogLoader.validateEditLog(edits);
+    
+    EditLogFile elf = new EditLogFile(f, val.getStartTxId(), 
+                                      val.getEndTxId(), true);
+    if (val.getNumTransactions() == 0) {
+      elf.markCorrupt();
+    }
+    
+    return elf;
+  }
+  
   /**
    * Record of an edit log that has been located and had its filename parsed.
    */
@@ -199,9 +309,8 @@ class FileJournalManager implements JournalManager {
     
     private EditLogValidation cachedValidation = null;
     private boolean isCorrupt = false;
-    
-    static final long UNKNOWN_END = -1;
-    
+    private final boolean isInProgress;
+
     final static Comparator<EditLogFile> COMPARE_BY_START_TXID 
       = new Comparator<EditLogFile>() {
       public int compare(EditLogFile a, EditLogFile b) {
@@ -214,17 +323,27 @@ class FileJournalManager implements JournalManager {
 
     EditLogFile(File file,
         long firstTxId, long lastTxId) {
-      assert lastTxId == UNKNOWN_END || lastTxId >= firstTxId;
-      assert firstTxId > 0;
+      this(file, firstTxId, lastTxId, false);
+      assert (lastTxId != FSConstants.INVALID_TXID)
+        && (lastTxId >= firstTxId);
+    }
+    
+    EditLogFile(File file, long firstTxId, 
+                long lastTxId, boolean isInProgress) { 
+      assert (lastTxId == FSConstants.INVALID_TXID && isInProgress)
+        || (lastTxId != FSConstants.INVALID_TXID && lastTxId >= firstTxId);
+      assert (firstTxId > 0) || (firstTxId == FSConstants.INVALID_TXID);
       assert file != null;
       
       this.firstTxId = firstTxId;
       this.lastTxId = lastTxId;
       this.file = file;
+      this.isInProgress = isInProgress;
     }
+
     
     public void finalizeLog() throws IOException {
-      long numTransactions = validateLog().numTransactions;
+      long numTransactions = validateLog().getNumTransactions();
       long lastTxId = firstTxId + numTransactions - 1;
       File dst = new File(file.getParentFile(),
           NNStorage.getFinalizedEditsFileName(firstTxId, lastTxId));
@@ -254,7 +373,7 @@ class FileJournalManager implements JournalManager {
     }
 
     boolean isInProgress() {
-      return (lastTxId == UNKNOWN_END);
+      return isInProgress;
     }
 
     File getFile() {

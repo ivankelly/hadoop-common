@@ -21,6 +21,7 @@ import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.Iterator;
+import java.util.List;
 import java.util.zip.Checksum;
 
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -34,6 +35,7 @@ import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.util.StringUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 /**
  * Extension of FSImage for the backup node.
@@ -261,11 +263,16 @@ public class BackupImage extends FSImage {
         new FSImageTransactionalStorageInspector();
       
       storage.inspectStorageDirs(inspector);
-      LogLoadPlan logLoadPlan = inspector.createLogLoadPlan(lastAppliedTxId,
-          target - 1);
-  
-      logLoadPlan.doRecovery();
-      loadEdits(logLoadPlan.getEditsFiles());
+      Iterable<EditLogInputStream> editStreamsAll 
+        = editLog.selectInputStreams(lastAppliedTxId, target - 1);
+      // remove inprogress
+      List<EditLogInputStream> editStreams = Lists.newArrayList();
+      for (EditLogInputStream s : editStreamsAll) {
+        if (s.getFirstTxId() != editLog.getCurSegmentTxId()) {
+          editStreams.add(s);
+        }
+      }
+      loadEdits(editStreams);
     }
     
     // now, need to load the in-progress file
@@ -275,7 +282,17 @@ public class BackupImage extends FSImage {
         return false; // drop lock and try again to load local logs
       }
       
-      EditLogInputStream stream = getEditLog().getInProgressFileInputStream();
+      EditLogInputStream stream = null;
+      Iterable<EditLogInputStream> editStreams
+        = getEditLog().selectInputStreams(
+            getEditLog().getCurSegmentTxId(),
+            getEditLog().getLastWrittenTxId());
+      for (EditLogInputStream s : editStreams) {
+        if (s.getFirstTxId() == getEditLog().getCurSegmentTxId()) {
+          stream = s;
+        }
+      }
+
       try {
         long remainingTxns = getEditLog().getLastWrittenTxId() - lastAppliedTxId;
         

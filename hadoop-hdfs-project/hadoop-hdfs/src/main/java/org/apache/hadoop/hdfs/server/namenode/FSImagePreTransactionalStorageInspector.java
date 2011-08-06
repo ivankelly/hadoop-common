@@ -32,6 +32,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
@@ -55,6 +56,7 @@ class FSImagePreTransactionalStorageInspector extends FSImageStorageInspector {
   private boolean hasOutOfDateStorageDirs = false;
   /* Flag set false if there are any "previous" directories found */
   private boolean isUpgradeFinalized = true;
+  private boolean needToSaveAfterRecovery = false;
   
   // Track the name and edits dir with the latest times
   private long latestNameCheckpointTime = Long.MIN_VALUE;
@@ -171,13 +173,23 @@ class FSImagePreTransactionalStorageInspector extends FSImageStorageInspector {
     
     return new PreTransactionalLoadPlan();
   }
-  
+
+  @Override
+  FSImageFile getLatestImage() throws IOException {
+    LoadPlan lp = createLoadPlan();
+    needToSaveAfterRecovery = lp.doRecovery();
+    
+    return new FSImageFile(latestNameSD, 
+        NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE),
+        FSConstants.INVALID_TXID);
+  }
+
   @Override
   boolean needToSave() {
     return hasOutOfDateStorageDirs ||
       checkpointTimes.size() != 1 ||
-      latestNameCheckpointTime > latestEditsCheckpointTime;
-
+      latestNameCheckpointTime > latestEditsCheckpointTime ||
+      needToSaveAfterRecovery;
   }
   
   private class PreTransactionalLoadPlan extends LoadPlan {
@@ -268,5 +280,34 @@ class FSImagePreTransactionalStorageInspector extends FSImageStorageInspector {
       files.add(editsNew);
     }
     return files;
+  }
+  
+  private List<File> getLatestEditsFiles() {
+    if (latestNameCheckpointTime > latestEditsCheckpointTime) {
+      // the image is already current, discard edits
+      LOG.debug(
+          "Name checkpoint time is newer than edits, not loading edits.");
+      return Collections.<File>emptyList();
+    }
+    
+    return getEditsInStorageDir(latestEditsSD);
+  }
+  
+  @Override
+  long getMaxSeenTxId() {
+    return 0L;
+  }
+
+  static Iterable<EditLogInputStream> getEditLogStreams(NNStorage storage)
+      throws IOException {
+    FSImagePreTransactionalStorageInspector inspector 
+      = new FSImagePreTransactionalStorageInspector();
+    storage.inspectStorageDirs(inspector);
+
+    List<EditLogInputStream> editStreams = new ArrayList<EditLogInputStream>();
+    for (File f : inspector.getLatestEditsFiles()) {
+      editStreams.add(new EditLogFileInputStream(f));
+    }
+    return editStreams;
   }
 }
