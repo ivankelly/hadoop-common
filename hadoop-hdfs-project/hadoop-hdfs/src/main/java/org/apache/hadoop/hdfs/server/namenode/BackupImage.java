@@ -285,7 +285,7 @@ public class BackupImage extends FSImage {
       Iterable<EditLogInputStream> editStreams
         = getEditLog().selectInputStreams(
             getEditLog().getCurSegmentTxId(),
-            getEditLog().getLastWrittenTxId());
+            getEditLog().getCurSegmentTxId());
       for (EditLogInputStream s : editStreams) {
         if (s.getFirstTxId() == getEditLog().getCurSegmentTxId()) {
           stream = s;

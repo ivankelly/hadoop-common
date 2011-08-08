@@ -72,9 +72,4 @@ class BackupJournalManager implements JournalManager {
   public boolean matchesRegistration(NamenodeRegistration bnReg) {
     return bnReg.getAddress().equals(this.bnReg.getAddress());
   }
-
-  @Override
-  public EditLogInputStream getInProgressInputStream(long segmentStartsAtTxId) {
-    return null;
-  }
 }

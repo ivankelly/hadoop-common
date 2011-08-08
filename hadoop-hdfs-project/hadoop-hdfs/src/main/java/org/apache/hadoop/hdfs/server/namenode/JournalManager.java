@@ -77,14 +77,6 @@ interface JournalManager {
   void purgeLogsOlderThan(long minTxIdToKeep)
     throws IOException;
 
-  /**
-   * @return an EditLogInputStream that reads from the same log that
-   * the edit log is currently writing. May return null if this journal
-   * manager does not support this operation.
-   */  
-  EditLogInputStream getInProgressInputStream(long segmentStartsAtTxId)
-    throws IOException;
-
   /** 
    * Indicate that a journal is cannot be used to load a certain range of 
    * edits.
