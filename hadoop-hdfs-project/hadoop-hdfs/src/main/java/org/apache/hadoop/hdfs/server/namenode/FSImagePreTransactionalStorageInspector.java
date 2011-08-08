@@ -141,15 +141,15 @@ class FSImagePreTransactionalStorageInspector extends FSImageStorageInspector {
   boolean isUpgradeFinalized() {
     return isUpgradeFinalized;
   }
-  
+    
   @Override
-  LoadPlan createLoadPlan() throws IOException {
+  FSImageFile getLatestImage() throws IOException {
     // We should have at least one image and one edits dirs
     if (latestNameSD == null)
       throw new IOException("Image file is not found in " + imageDirs);
     if (latestEditsSD == null)
       throw new IOException("Edits file is not found in " + editsDirs);
-
+    
     // Make sure we are loading image and edits from same checkpoint
     if (latestNameCheckpointTime > latestEditsCheckpointTime
         && latestNameSD != latestEditsSD
@@ -170,14 +170,8 @@ class FSImagePreTransactionalStorageInspector extends FSImageStorageInspector {
                       "image checkpoint time = " + latestNameCheckpointTime +
                       "edits checkpoint time = " + latestEditsCheckpointTime);
     }
-    
-    return new PreTransactionalLoadPlan();
-  }
 
-  @Override
-  FSImageFile getLatestImage() throws IOException {
-    LoadPlan lp = createLoadPlan();
-    needToSaveAfterRecovery = lp.doRecovery();
+    needToSaveAfterRecovery = doRecovery();
     
     return new FSImageFile(latestNameSD, 
         NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE),
@@ -192,80 +186,54 @@ class FSImagePreTransactionalStorageInspector extends FSImageStorageInspector {
       needToSaveAfterRecovery;
   }
   
-  private class PreTransactionalLoadPlan extends LoadPlan {
-
-    @Override
-    boolean doRecovery() throws IOException {
-      LOG.debug(
+  boolean doRecovery() throws IOException {
+    LOG.debug(
         "Performing recovery in "+ latestNameSD + " and " + latestEditsSD);
       
-      boolean needToSave = false;
-      File curFile =
-        NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE);
-      File ckptFile =
-        NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE_NEW);
-
-      //
-      // If we were in the midst of a checkpoint
-      //
-      if (ckptFile.exists()) {
-        needToSave = true;
-        if (NNStorage.getStorageFile(latestEditsSD, NameNodeFile.EDITS_NEW)
-              .exists()) {
-          //
-          // checkpointing migth have uploaded a new
-          // merged image, but we discard it here because we are
-          // not sure whether the entire merged image was uploaded
-          // before the namenode crashed.
-          //
-          if (!ckptFile.delete()) {
-            throw new IOException("Unable to delete " + ckptFile);
-          }
-        } else {
-          //
-          // checkpointing was in progress when the namenode
-          // shutdown. The fsimage.ckpt was created and the edits.new
-          // file was moved to edits. We complete that checkpoint by
-          // moving fsimage.new to fsimage. There is no need to 
-          // update the fstime file here. renameTo fails on Windows
-          // if the destination file already exists.
-          //
+    boolean needToSave = false;
+    File curFile =
+      NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE);
+    File ckptFile =
+      NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE_NEW);
+    
+    //
+    // If we were in the midst of a checkpoint
+    //
+    if (ckptFile.exists()) {
+      needToSave = true;
+      if (NNStorage.getStorageFile(latestEditsSD, NameNodeFile.EDITS_NEW)
+          .exists()) {
+        //
+        // checkpointing migth have uploaded a new
+        // merged image, but we discard it here because we are
+        // not sure whether the entire merged image was uploaded
+        // before the namenode crashed.
+        //
+        if (!ckptFile.delete()) {
+          throw new IOException("Unable to delete " + ckptFile);
+        }
+      } else {
+        //
+        // checkpointing was in progress when the namenode
+        // shutdown. The fsimage.ckpt was created and the edits.new
+        // file was moved to edits. We complete that checkpoint by
+        // moving fsimage.new to fsimage. There is no need to 
+        // update the fstime file here. renameTo fails on Windows
+        // if the destination file already exists.
+        //
+        if (!ckptFile.renameTo(curFile)) {
+          if (!curFile.delete())
+            LOG.warn("Unable to delete dir " + curFile + " before rename");
           if (!ckptFile.renameTo(curFile)) {
-            if (!curFile.delete())
-              LOG.warn("Unable to delete dir " + curFile + " before rename");
-            if (!ckptFile.renameTo(curFile)) {
-              throw new IOException("Unable to rename " + ckptFile +
-                                    " to " + curFile);
-            }
+            throw new IOException("Unable to rename " + ckptFile +
+                                  " to " + curFile);
           }
         }
       }
-      return needToSave;
     }
-
-    @Override
-    File getImageFile() {
-      return NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE);
-    }
-
-    @Override
-    List<File> getEditsFiles() {
-      if (latestNameCheckpointTime > latestEditsCheckpointTime) {
-        // the image is already current, discard edits
-        LOG.debug(
-          "Name checkpoint time is newer than edits, not loading edits.");
-        return Collections.<File>emptyList();
-      }
-      
-      return getEditsInStorageDir(latestEditsSD);
-    }
-
-    @Override
-    StorageDirectory getStorageDirectoryForProperties() {
-      return latestNameSD;
-    }    
+    return needToSave;
   }
-
+  
   /**
    * @return a list with the paths to EDITS and EDITS_NEW (if it exists)
    * in a given storage directory.
