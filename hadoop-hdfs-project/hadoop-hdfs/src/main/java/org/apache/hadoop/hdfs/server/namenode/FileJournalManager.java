@@ -23,7 +23,9 @@ import org.apache.commons.logging.LogFactory;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Comparator;
+import java.util.Collections;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -264,6 +266,27 @@ class FileJournalManager implements JournalManager {
     }
 
     return numTxns;
+  }
+
+  private List<EditLogFile> getLogFiles(long fromTxId) throws IOException {
+    File currentDir = sd.getCurrentDir();
+    List<EditLogFile> allLogFiles = matchEditLogs(currentDir.listFiles());
+    List<EditLogFile> logFiles = Lists.newArrayList();
+    
+    for (EditLogFile elf : allLogFiles) {
+      if (fromTxId > elf.getFirstTxId()
+          && fromTxId <= elf.getLastTxId()) {
+        throw new IOException("Asked for fromTxId " + fromTxId
+            + " which is in middle of file " + elf.file);
+      }
+      if (fromTxId <= elf.getFirstTxId()) {
+        logFiles.add(elf);
+      }
+    }
+    
+    Collections.sort(logFiles, EditLogFile.COMPARE_BY_START_TXID);
+
+    return logFiles;
   }
 
   private long getMaxLoadableTransaction()

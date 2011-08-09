@@ -1122,7 +1122,7 @@ public class FSEditLog  {
    */
   Iterable<EditLogInputStream> selectInputStreams(long fromTxId, long toAtLeastTxId) 
       throws IOException {
-    List<EditLogInputStream> streams = new ArrayList<EditLogInputStream>();
+    List<EditLogInputStream> streams = Lists.newArrayList();
     
     EditLogInputStream stream = selectStream(fromTxId);
     while (stream != null) {

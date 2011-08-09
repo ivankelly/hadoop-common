@@ -68,40 +68,6 @@ public class TestFSImageStorageInspector {
     assertTrue(inspector.isUpgradeFinalized());
     
     assertEquals(new File("/foo/current/"+getImageFileName(456)), 
-                 plan.getImageFile());
-  }
-  
-  /**
-   * Make a mock storage directory that returns some set of file contents.
-   * @param type type of storage dir
-   * @param previousExists should we mock that the previous/ dir exists?
-   * @param fileNames the names of files contained in current/
-   */
-  static StorageDirectory mockDirectory(
-      StorageDirType type,
-      boolean previousExists,
-      String...  fileNames) {
-    StorageDirectory sd = mock(StorageDirectory.class);
-    
-    doReturn(type).when(sd).getStorageDirType();
-
-    // Version file should always exist
-    doReturn(FSImageTestUtil.mockFile(true)).when(sd).getVersionFile();
-    
-    // Previous dir optionally exists
-    doReturn(FSImageTestUtil.mockFile(previousExists))
-      .when(sd).getPreviousDir();   
-
-    // Return a mock 'current' directory which has the given paths
-    File[] files = new File[fileNames.length];
-    for (int i = 0; i < fileNames.length; i++) {
-      files[i] = new File(fileNames[i]);
-    }
-    
-    File mockDir = Mockito.spy(new File("/dir/current"));
-    doReturn(files).when(mockDir).listFiles();
-    doReturn(mockDir).when(sd).getCurrentDir();
-    
-    return sd;
+        latestImage.getFile());
   }
 }
