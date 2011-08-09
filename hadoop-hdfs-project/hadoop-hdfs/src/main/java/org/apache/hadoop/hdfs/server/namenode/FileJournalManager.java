@@ -302,23 +302,6 @@ class FileJournalManager implements JournalManager {
     return max;
   }
 
-  private void recoverUnclosedStreams() throws IOException {
-    File currentDir = sd.getCurrentDir();
-    List<EditLogFile> logFiles = matchEditLogs(currentDir.listFiles());
-    for (EditLogFile f : logFiles) {
-      if (f.isInProgress() && !f.getFile().equals(currentInProgress)) {
-        EditLogFile elf 
-          = countTransactionsInInprogress(f);
-        
-        if (elf.isCorrupt()) {
-          elf.moveAsideCorruptFile();
-        } else {
-          finalizeLogSegment(elf.getFirstTxId(), elf.getLastTxId());
-        }
-      }
-    }
-  }
-
   EditLogFile countTransactionsInInprogress(EditLogFile f) 
       throws IOException {
     if (f.getFile().equals(currentInProgress)) {
