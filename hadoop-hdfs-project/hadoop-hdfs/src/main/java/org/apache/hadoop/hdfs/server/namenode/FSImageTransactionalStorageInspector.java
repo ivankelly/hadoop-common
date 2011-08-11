@@ -126,9 +126,13 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
    * If there are multiple storage directories which contain equal images 
    * the storage directory that was inspected first will be preferred.
    * 
-   * Returns null if no images were found.
+   * @throws FileNotFoundException if not images are found.
    */
-  FSImageFile getLatestImage() {
+  FSImageFile getLatestImage() throws IOException {
+    if (foundImages.isEmpty()) {
+      throw new FileNotFoundException("No valid image files found");
+    }
+
     FSImageFile ret = null;
     for (FSImageFile img : foundImages) {
       if (ret == null || img.txId > ret.txId) {
