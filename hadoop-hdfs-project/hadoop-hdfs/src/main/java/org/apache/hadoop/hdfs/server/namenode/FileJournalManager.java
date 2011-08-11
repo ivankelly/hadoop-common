@@ -113,7 +113,7 @@ class FileJournalManager implements JournalManager {
   }
 
   @Override
-  public void setOutputBufferCapacity(int size) {
+  synchronized public void setOutputBufferCapacity(int size) {
     this.outputBufferCapacity = size;
   }
 
@@ -302,7 +302,7 @@ class FileJournalManager implements JournalManager {
     return max;
   }
 
-  EditLogFile countTransactionsInInprogress(EditLogFile f) 
+  synchronized EditLogFile countTransactionsInInprogress(EditLogFile f) 
       throws IOException {
     if (f.getFile().equals(currentInProgress)) {
       return f; // don't count as we are currently writing

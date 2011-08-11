@@ -84,6 +84,8 @@ interface JournalManager {
    * corrupt edit file.
    */
   public static class CorruptionException extends IOException {
+    static final long serialVersionUID = -4687802717006172702L;
+
     public CorruptionException(String reason) {
       super(reason);
     }
