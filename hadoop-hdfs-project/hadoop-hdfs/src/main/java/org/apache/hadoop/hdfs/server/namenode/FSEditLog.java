@@ -1129,8 +1129,8 @@ public class FSEditLog  {
       stream = selectStream(fromTxId);
     }
     if (fromTxId <= toAtLeastTxId) {
-      throw new IllegalStateException("No non-corrupt logs for txid " 
-                                      + fromTxId);
+      throw new IOException("No non-corrupt logs for txid " 
+                            + fromTxId);
     }
     return streams;
   }
