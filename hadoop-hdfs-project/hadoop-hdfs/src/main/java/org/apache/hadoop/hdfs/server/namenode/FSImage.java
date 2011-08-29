@@ -591,6 +591,8 @@ public class FSImage implements Closeable {
 
     Iterable<EditLogInputStream> editStreams = null;
 
+    editLog.recoverUnclosedStreams();
+
     if (LayoutVersion.supports(Feature.TXID_BASED_LAYOUT, 
                                getLayoutVersion())) {
       editStreams = editLog.selectInputStreams(imageFile.getCheckpointTxId() + 1,

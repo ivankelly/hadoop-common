@@ -262,6 +262,8 @@ public class BackupImage extends FSImage {
         new FSImageTransactionalStorageInspector();
       
       storage.inspectStorageDirs(inspector);
+
+      editLog.recoverUnclosedStreams();
       Iterable<EditLogInputStream> editStreamsAll 
         = editLog.selectInputStreams(lastAppliedTxId, target - 1);
       // remove inprogress

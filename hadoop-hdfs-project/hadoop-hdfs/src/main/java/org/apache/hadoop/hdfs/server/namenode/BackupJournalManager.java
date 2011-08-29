@@ -60,13 +60,17 @@ class BackupJournalManager implements JournalManager {
 
   @Override
   public long getNumberOfTransactions(long fromTxnId) 
-      throws IOException, CorruptionException {
+      throws IOException {
     return 0;
   }
   
   @Override
   public EditLogInputStream getInputStream(long fromTxnId) throws IOException {
     throw new IOException("Unsupported operation");
+  }
+
+  @Override
+  public void recoverUnfinalizedSegments() throws IOException {
   }
 
   public boolean matchesRegistration(NamenodeRegistration bnReg) {

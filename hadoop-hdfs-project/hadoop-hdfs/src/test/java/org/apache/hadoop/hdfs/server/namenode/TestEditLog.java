@@ -666,6 +666,12 @@ public class TestEditLog extends TestCase {
       // Make a truncated edits_3_inprogress
       File log = new File(currentDir,
           NNStorage.getInProgressEditsFileName(3));
+      NNStorage storage = new NNStorage(conf, 
+                                        Collections.<URI>emptyList(),
+                                        Lists.newArrayList(uri));
+      storage.writeTransactionIdFileToStorage(3);
+      storage.close();
+
       new EditLogFileOutputStream(log, 1024).create();
       if (!inBothDirs) {
         break;

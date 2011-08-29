@@ -251,12 +251,7 @@ public class TestFileJournalManager {
     FileJournalManager jm = new FileJournalManager(sd);
     assertEquals(startGapTxId-1, jm.getNumberOfTransactions(1));
     
-    try {
-      jm.getNumberOfTransactions(startGapTxId);
-      fail("Should have thrown an exception by now");
-    } catch (IOException ioe) {
-      assertTrue(true);
-    }
+    assertEquals(0, jm.getNumberOfTransactions(startGapTxId));
 
     // rolled 10 times so there should be 11 files.
     assertEquals(11*TXNS_PER_ROLL - endGapTxId, 
