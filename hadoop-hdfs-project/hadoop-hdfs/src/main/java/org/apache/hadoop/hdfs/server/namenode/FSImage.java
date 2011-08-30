@@ -114,13 +114,14 @@ public class FSImage implements Closeable {
       throws IOException {
     this.conf = conf;
 
-    storage = new NNStorage(conf, imageDirs, editsDirs);
+    storage = new NNStorage(conf, imageDirs, Lists.newArrayList(editsDirs));
     if(conf.getBoolean(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_KEY,
                        DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_DEFAULT)) {
       storage.setRestoreFailedStorage(true);
     }
 
-    this.editLog = new FSEditLog(storage);
+    this.editLog = new FSEditLog(conf, storage, 
+                                 Lists.newArrayList(editsDirs));
     
     archivalManager = new NNStorageRetentionManager(conf, storage, editLog);
   }
@@ -150,12 +151,11 @@ public class FSImage implements Closeable {
       "NameNode formatting should be performed before reading the image";
     
     Collection<URI> imageDirs = storage.getImageDirectories();
-    Collection<URI> editsDirs = storage.getEditsDirectories();
 
 
     // none of the data dirs exist
-    if((imageDirs.size() == 0 || editsDirs.size() == 0) 
-                             && startOpt != StartupOption.IMPORT)  
+    if(imageDirs.size() == 0
+       && startOpt != StartupOption.IMPORT)  
       throw new IOException(
           "All specified directories are not accessible or do not exist.");
     

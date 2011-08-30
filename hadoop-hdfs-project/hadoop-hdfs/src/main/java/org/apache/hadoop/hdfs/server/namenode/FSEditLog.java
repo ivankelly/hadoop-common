@@ -17,12 +17,14 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
+import java.net.URI;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.SortedSet;
+import java.lang.reflect.Constructor;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -30,6 +32,7 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.fs.Options;
 import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.protocol.HdfsConstants;
 import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifier;
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.NamenodeRole;
@@ -43,6 +46,7 @@ import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
 import org.apache.hadoop.security.token.delegation.DelegationKey;
 import org.apache.hadoop.io.IOUtils;
+import org.apache.hadoop.conf.Configuration;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -132,16 +136,35 @@ public class FSEditLog  {
     }
   };
 
-  FSEditLog(NNStorage storage) {
+  final private Collection<URI> editsDirs;
+  final private Configuration conf;
+  
+  FSEditLog(Configuration conf, NNStorage storage, Collection<URI> editsDirs) 
+      throws IOException {
     isSyncRunning = false;
     this.storage = storage;
+    this.conf = conf;
     metrics = NameNode.getNameNodeMetrics();
     lastPrintTime = now();
     
-    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
-      journals.add(new JournalAndStream(new FileJournalManager(sd)));
+    if (editsDirs.isEmpty()) { 
+      // if this is the case, no edit dirs have been explictly configured
+      // image dirs are to be used for edits too
+      this.editsDirs = Lists.newArrayList(storage.getEditsDirectories());
+    } else {
+      this.editsDirs = Lists.newArrayList(editsDirs);
     }
     
+    for (URI u : editsDirs) {
+      if (u.getScheme().equals("file")) {
+        StorageDirectory sd = storage.getStorageDirectory(u);
+        journals.add(new JournalAndStream(new FileJournalManager(sd)));
+      } else {
+        JournalManager jm = createJournal(u);
+        journals.add(new JournalAndStream(jm));
+      }
+    }
+ 
     if (journals.isEmpty()) {
       LOG.error("No edits directories configured!");
     }
@@ -705,7 +728,7 @@ public class FSEditLog  {
   /**
    * @return the number of active (non-failed) journals
    */
-  private int countActiveJournals() {
+  int countActiveJournals() {
     int count = 0;
     for (JournalAndStream jas : journals) {
       if (jas.isActive()) {
@@ -1174,6 +1197,51 @@ public class FSEditLog  {
   static void closeAllStreams(Iterable<EditLogInputStream> streams) {
     for (EditLogInputStream s : streams) {
       IOUtils.closeStream(s);
+    }
+  }
+
+  /**
+   * Retrieve the implementation classname for a Journal scheme.
+   * @param conf The configuration to retrieve the information from
+   * @param uriScheme The uri scheme to look up.
+   * @return the classname of the journal implementation 
+   *    or null if nothing found.
+   */
+  static String getJournalClass(Configuration conf, 
+                                String uriScheme) {
+    String key = DFSConfigKeys.DFS_NAMENODE_EDITS_PLUGIN_BASE + "." + uriScheme;
+    String classname = conf.get(key);
+    if (classname == null) {
+      LOG.warn("No class configured for " +uriScheme + ", " + key + " is empty");
+    }
+    return classname;
+  }
+
+  /** 
+   * Construct a custom journal manager.
+   * The class to construct is taken from the configuration.
+   * @param uri Uri to construct
+   * @return The constructed journal manager
+   * @throws IllegalArgumentException if no class is configured for uri
+   */
+  private JournalManager createJournal(URI uri) {
+    String classname = getJournalClass(conf, uri.getScheme());
+    
+    if (classname != null) {
+      try {
+        Class <? extends JournalManager> cls
+          = Class.forName(classname).asSubclass(
+              JournalManager.class);
+        Constructor<? extends JournalManager> cons
+          = cls.getConstructor(Configuration.class, URI.class);
+        
+        return cons.newInstance(conf, uri);
+      } catch (Exception e) {
+        throw new IllegalArgumentException("Unable to construct journal, " 
+                                           + uri, e);
+      }
+    } else {
+      throw new IllegalArgumentException("No class configured for " + uri);
     }
   }
 

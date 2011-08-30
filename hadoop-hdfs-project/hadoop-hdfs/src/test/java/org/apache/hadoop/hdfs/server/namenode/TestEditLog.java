@@ -46,6 +46,7 @@ import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.protocol.HdfsFileStatus;
+import org.apache.hadoop.hdfs.server.common.Util;
 import org.apache.hadoop.hdfs.server.namenode.EditLogFileInputStream;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
@@ -799,12 +800,15 @@ public class TestEditLog extends TestCase {
   public void testEditLogManifestMocks() throws IOException {
     NNStorage storage;
     FSEditLog log;
+
     // Simple case - different directories have the same
     // set of logs, with an in-progress one at end
     storage = mockStorageWithEdits(
         "[1,100]|[101,200]|[201,]",
         "[1,100]|[101,200]|[201,]");
-    log = new FSEditLog(storage);
+    log = new FSEditLog(new Configuration(), storage,
+        storage.getDirectories(NameNodeDirType.EDITS));
+    LOG.info("IK: " + storage.getDirectories(NameNodeDirType.EDITS));
     assertEquals("[[1,100], [101,200]]",
         log.getEditLogManifest(1).toString());
     assertEquals("[[101,200]]",
@@ -815,7 +819,8 @@ public class TestEditLog extends TestCase {
     storage = mockStorageWithEdits(
         "[1,100]|[101,200]",
         "[1,100]|[201,300]|[301,400]"); // nothing starting at 101
-    log = new FSEditLog(storage);
+    log = new FSEditLog(new Configuration(), storage,
+                        storage.getDirectories(NameNodeDirType.EDITS));
     assertEquals("[[1,100], [101,200], [201,300], [301,400]]",
         log.getEditLogManifest(1).toString());
     
@@ -824,7 +829,8 @@ public class TestEditLog extends TestCase {
     storage = mockStorageWithEdits(
         "[1,100]|[301,400]", // gap from 101 to 300
         "[301,400]|[401,500]");
-    log = new FSEditLog(storage);
+    log = new FSEditLog(new Configuration(), storage, 
+                        storage.getDirectories(NameNodeDirType.EDITS));
     assertEquals("[[301,400], [401,500]]",
         log.getEditLogManifest(1).toString());
     
@@ -833,7 +839,8 @@ public class TestEditLog extends TestCase {
     storage = mockStorageWithEdits(
         "[1,100]|[101,150]", // short log at 101
         "[1,50]|[101,200]"); // short log at 1
-    log = new FSEditLog(storage);
+    log = new FSEditLog(new Configuration(), storage,
+                        storage.getDirectories(NameNodeDirType.EDITS));
     assertEquals("[[1,100], [101,200]]",
         log.getEditLogManifest(1).toString());
     assertEquals("[[101,200]]",
@@ -845,7 +852,8 @@ public class TestEditLog extends TestCase {
     storage = mockStorageWithEdits(
         "[1,100]|[101,]", 
         "[1,100]|[101,200]"); 
-    log = new FSEditLog(storage);
+    log = new FSEditLog(new Configuration(), storage, 
+                        storage.getDirectories(NameNodeDirType.EDITS));
     assertEquals("[[1,100], [101,200]]",
         log.getEditLogManifest(1).toString());
     assertEquals("[[101,200]]",
@@ -861,8 +869,11 @@ public class TestEditLog extends TestCase {
    * The syntax <code>[1,]</code> specifies an in-progress log starting at
    * txid 1.
    */
-  private NNStorage mockStorageWithEdits(String... editsDirSpecs) {
+  private NNStorage mockStorageWithEdits(String... editsDirSpecs) throws IOException {
     List<StorageDirectory> sds = Lists.newArrayList();
+    List<URI> uris = Lists.newArrayList();
+
+    NNStorage storage = Mockito.mock(NNStorage.class);
     for (String dirSpec : editsDirSpecs) {
       List<String> files = Lists.newArrayList();
       String[] logSpecs = dirSpec.split("\\|");
@@ -878,13 +889,17 @@ public class TestEditLog extends TestCase {
               Long.valueOf(m.group(2))));
         }
       }
-      sds.add(FSImageTestUtil.mockStorageDirectory(
+      StorageDirectory sd = FSImageTestUtil.mockStorageDirectory(
           NameNodeDirType.EDITS, false,
-          files.toArray(new String[0])));
-    }
-    
-    NNStorage storage = Mockito.mock(NNStorage.class);
+          files.toArray(new String[0]));
+      sds.add(sd);
+      URI u = URI.create("file:///storage"+ Math.random());
+      Mockito.doReturn(sd).when(storage).getStorageDirectory(u);
+      uris.add(u);
+    }    
+
     Mockito.doReturn(sds).when(storage).dirIterable(NameNodeDirType.EDITS);
+    Mockito.doReturn(uris).when(storage).getDirectories(NameNodeDirType.EDITS);
     return storage;
   }
 
@@ -927,7 +942,8 @@ public class TestEditLog extends TestCase {
                                       Collections.<URI>emptyList(),
                                       editUris);
     storage.format("test-cluster-id");
-    FSEditLog editlog = new FSEditLog(storage);    
+    FSEditLog editlog = new FSEditLog(new Configuration(), 
+                                      storage, editUris);    
     // open the edit log and add two transactions
     // logGenerationStamp is used, simply because it doesn't 
     // require complex arguments.
@@ -990,7 +1006,8 @@ public class TestEditLog extends TestCase {
                                    new AbortSpec(9, 0),
                                    new AbortSpec(10, 1));
     long totaltxnread = 0;
-    FSEditLog editlog = new FSEditLog(storage);
+    FSEditLog editlog = new FSEditLog(new Configuration(), 
+                                      storage, editUris);
     long startTxId = 1;
     Iterable<EditLogInputStream> editStreams = editlog.selectInputStreams(startTxId, 
                                                                           TXNS_PER_ROLL*11);
@@ -1039,7 +1056,7 @@ public class TestEditLog extends TestCase {
     assertEquals(1, files.length);
     assertTrue(files[0].delete());
     
-    FSEditLog editlog = new FSEditLog(storage);
+    FSEditLog editlog = new FSEditLog(new Configuration(), storage, editUris);
     long startTxId = 1;
     try {
       Iterable<EditLogInputStream> editStreams 
