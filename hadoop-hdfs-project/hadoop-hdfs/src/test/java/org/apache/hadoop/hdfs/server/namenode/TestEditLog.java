@@ -682,9 +682,9 @@ public class TestEditLog extends TestCase {
       cluster = new MiniDFSCluster.Builder(conf)
         .numDataNodes(NUM_DATA_NODES).format(false).build();
       fail("Did not fail to start with all-corrupt logs");
-    } catch (IllegalStateException ise) {
+    } catch (IOException ioe) {
       GenericTestUtils.assertExceptionContains(
-          "No non-corrupt logs for txid 3", ise);
+          "No non-corrupt logs for txid 3", ioe);
     }
     cluster.shutdown();
   }
@@ -1028,9 +1028,9 @@ public class TestEditLog extends TestCase {
         = editlog.selectInputStreams(startTxId, 4*TXNS_PER_ROLL);
       
       fail("Should have thrown exception");
-    } catch (IllegalStateException ise) {
+    } catch (IOException ioe) {
       GenericTestUtils.assertExceptionContains(
-          "No non-corrupt logs for txid " + startGapTxId, ise);
+          "No non-corrupt logs for txid " + startGapTxId, ioe);
     }
   }
 }
