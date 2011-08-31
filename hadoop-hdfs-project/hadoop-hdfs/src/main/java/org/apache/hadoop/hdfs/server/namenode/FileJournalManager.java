@@ -198,7 +198,7 @@ class FileJournalManager implements JournalManager {
     for (EditLogFile elf : getLogFiles(fromTxId)) {
       if (elf.getFirstTxId() == fromTxId) {
         if (elf.isInProgress()) {
-          elf = countTransactionsInInprogress(elf);
+          elf = validateEditLogFile(elf);
         }
         if (LOG.isTraceEnabled()) {
           LOG.trace("Returning edit stream reading from " + elf);
@@ -226,7 +226,7 @@ class FileJournalManager implements JournalManager {
             + fromTxId + " - " + (elf.getFirstTxId() - 1));
       } else if (fromTxId == elf.getFirstTxId()) {
         if (elf.isInProgress()) {
-          elf = countTransactionsInInprogress(elf);
+          elf = validateEditLogFile(elf);
         } 
 
         if (elf.isCorrupt()) {
@@ -259,7 +259,7 @@ class FileJournalManager implements JournalManager {
         continue;
       }
       if (elf.isInProgress()) {
-        elf = countTransactionsInInprogress(elf);
+        elf = validateEditLogFile(elf);
 
         if (elf.isCorrupt()) {
           elf.moveAsideCorruptFile();
@@ -291,7 +291,7 @@ class FileJournalManager implements JournalManager {
     return logFiles;
   }
 
-  synchronized EditLogFile countTransactionsInInprogress(EditLogFile f) 
+  synchronized EditLogFile validateEditLogFile(EditLogFile f) 
       throws IOException {
     f.validateLog();
     return f;
