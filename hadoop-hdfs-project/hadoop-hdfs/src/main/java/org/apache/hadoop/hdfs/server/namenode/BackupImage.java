@@ -20,6 +20,7 @@ package org.apache.hadoop.hdfs.server.namenode;
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.zip.Checksum;
@@ -30,7 +31,6 @@ import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageState;
-import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.util.StringUtils;
 
 import com.google.common.base.Preconditions;
@@ -284,14 +284,21 @@ public class BackupImage extends FSImage {
       }
       
       EditLogInputStream stream = null;
-      Iterable<EditLogInputStream> editStreams
+      Collection<EditLogInputStream> editStreams
         = getEditLog().selectInputStreams(
             getEditLog().getCurSegmentTxId(),
             getEditLog().getCurSegmentTxId());
+      
       for (EditLogInputStream s : editStreams) {
         if (s.getFirstTxId() == getEditLog().getCurSegmentTxId()) {
           stream = s;
         }
+        break;
+      }
+      if (stream == null) {
+        LOG.warn("Unable to find stream starting with " + editLog.getCurSegmentTxId()
+                 + ". This indicates that there is an error in synchronization in BackupImage");
+        return false;
       }
 
       try {
@@ -307,7 +314,7 @@ public class BackupImage extends FSImage {
           "expected to load " + remainingTxns + " but loaded " +
           numLoaded + " from " + stream;
       } finally {
-        IOUtils.closeStream(stream);
+        FSEditLog.closeAllStreams(editStreams);
       }
 
       LOG.info("Successfully synced BackupNode with NameNode at txnid " +

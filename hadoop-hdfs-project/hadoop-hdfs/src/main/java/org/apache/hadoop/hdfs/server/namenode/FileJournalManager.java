@@ -61,6 +61,7 @@ class FileJournalManager implements JournalManager {
     NameNodeFile.EDITS_INPROGRESS.getName() + "_(\\d+)");
 
   private File currentInProgress = null;
+  private long maxSeenTransaction = 0L;
 
   @VisibleForTesting
   StoragePurger purger
@@ -83,10 +84,7 @@ class FileJournalManager implements JournalManager {
   @Override
   synchronized public void finalizeLogSegment(long firstTxId, long lastTxId)
       throws IOException {
-    File inprogressFile = currentInProgress;
-    if (inprogressFile == null) { // in the case of recovery
-      inprogressFile = NNStorage.getInProgressEditsFile(sd, firstTxId);
-    }
+    File inprogressFile = NNStorage.getInProgressEditsFile(sd, firstTxId);
 
     File dstFile = NNStorage.getFinalizedEditsFile(
         sd, firstTxId, lastTxId);
@@ -98,17 +96,14 @@ class FileJournalManager implements JournalManager {
     if (!inprogressFile.renameTo(dstFile)) {
       throw new IOException("Unable to finalize edits file " + inprogressFile);
     }
-    currentInProgress = null;
+    if (inprogressFile.equals(currentInProgress)) {
+      currentInProgress = null;
+    }
   }
 
   @VisibleForTesting
   public StorageDirectory getStorageDirectory() {
     return sd;
-  }
-
-  @Override
-  public String toString() {
-    return "FileJournalManager for storage directory " + sd;
   }
 
   @Override
@@ -198,7 +193,7 @@ class FileJournalManager implements JournalManager {
     for (EditLogFile elf : getLogFiles(fromTxId)) {
       if (elf.getFirstTxId() == fromTxId) {
         if (elf.isInProgress()) {
-          elf = validateEditLogFile(elf);
+          elf.validateLog();
         }
         if (LOG.isTraceEnabled()) {
           LOG.trace("Returning edit stream reading from " + elf);
@@ -214,7 +209,7 @@ class FileJournalManager implements JournalManager {
 
   @Override
   public long getNumberOfTransactions(long fromTxId) 
-      throws IOException {
+      throws IOException, CorruptionException {
     long numTxns = 0L;
     
     for (EditLogFile elf : getLogFiles(fromTxId)) {
@@ -222,11 +217,12 @@ class FileJournalManager implements JournalManager {
         LOG.trace("Counting " + elf);
       }
       if (elf.getFirstTxId() > fromTxId) { // there must be a gap
-        LOG.warn("Gap in transactions "
+        LOG.warn("Gap in transactions in " + sd.getRoot() + ". Gap is "
             + fromTxId + " - " + (elf.getFirstTxId() - 1));
+        break;
       } else if (fromTxId == elf.getFirstTxId()) {
         if (elf.isInProgress()) {
-          elf = validateEditLogFile(elf);
+          elf.validateLog();
         } 
 
         if (elf.isCorrupt()) {
@@ -246,6 +242,17 @@ class FileJournalManager implements JournalManager {
                 + " txns from " + fromTxId);
     }
 
+    long max = findMaxTransaction();
+    // fromTxId should be greater than max, as it points to the next 
+    // transaction we should expect to find. If it is less than or equal
+    // to max, it means that a transaction with txid == max has not been found
+    if (numTxns == 0 && fromTxId <= max) { 
+      String error = String.format("Gap in transactions, max txnid is %d"
+                                   + ", 0 txns from %d", max, fromTxId);
+      LOG.error(error);
+      throw new CorruptionException(error);
+    }
+
     return numTxns;
   }
 
@@ -254,12 +261,16 @@ class FileJournalManager implements JournalManager {
     File currentDir = sd.getCurrentDir();
     List<EditLogFile> allLogFiles = matchEditLogs(currentDir.listFiles());
     
+    // make sure journal is aware of max seen transaction before moving corrupt 
+    // files aside
+    findMaxTransaction();
+
     for (EditLogFile elf : allLogFiles) {
       if (elf.getFile().equals(currentInProgress)) {
         continue;
       }
       if (elf.isInProgress()) {
-        elf = validateEditLogFile(elf);
+        elf.validateLog();
 
         if (elf.isCorrupt()) {
           elf.moveAsideCorruptFile();
@@ -291,12 +302,30 @@ class FileJournalManager implements JournalManager {
     return logFiles;
   }
 
-  synchronized EditLogFile validateEditLogFile(EditLogFile f) 
+  /** 
+   * Find the maximum transaction in the journal.
+   * This gets stored in a member variable, as corrupt edit logs
+   * will be moved aside, but we still need to remember their first
+   * tranaction id in the case that it was the maximum transaction in
+   * the journal.
+   */
+  private long findMaxTransaction()
       throws IOException {
-    f.validateLog();
-    return f;
+    for (EditLogFile elf : getLogFiles(0)) {
+      if (elf.isInProgress()) {
+        maxSeenTransaction = Math.max(elf.getFirstTxId(), maxSeenTransaction);
+        elf.validateLog();
+      }
+      maxSeenTransaction = Math.max(elf.getLastTxId(), maxSeenTransaction);
+    }
+    return maxSeenTransaction;
   }
-  
+
+  @Override
+  public String toString() {
+    return String.format("FileJournalManager(root=%s)", sd.getRoot());
+  }
+
   /**
    * Record of an edit log that has been located and had its filename parsed.
    */
@@ -346,18 +375,18 @@ class FileJournalManager implements JournalManager {
       return lastTxId;
     }
 
-    void setLastTxId(long lastTxId) {
-      this.lastTxId = lastTxId;
-    }
-
-    EditLogValidation validateLog() throws IOException {
+    /** 
+     * Count the number of valid transactions in a log.
+     * This will update the lastTxId of the EditLogFile or
+     * mark it as corrupt if it is.
+     */
+    void validateLog() throws IOException {
       EditLogValidation val = EditLogFileInputStream.validateEditLog(file);
       if (val.getNumTransactions() == 0) {
         markCorrupt();
       } else {
         this.lastTxId = val.getEndTxId();
       }
-      return val;
     }
 
     boolean isInProgress() {

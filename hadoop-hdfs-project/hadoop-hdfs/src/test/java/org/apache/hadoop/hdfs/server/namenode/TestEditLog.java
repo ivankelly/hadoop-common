@@ -628,13 +628,23 @@ public class TestEditLog extends TestCase {
   }
   
   public void testCrashRecoveryEmptyLogOneDir() throws Exception {
-    doTestCrashRecoveryEmptyLog(false);
+    doTestCrashRecoveryEmptyLog(false, true);
   }
   
   public void testCrashRecoveryEmptyLogBothDirs() throws Exception {
-    doTestCrashRecoveryEmptyLog(true);
+    doTestCrashRecoveryEmptyLog(true, true);
+  }
+
+  public void testCrashRecoveryEmptyLogOneDirNoUpdateSeenTxId() 
+      throws Exception {
+    doTestCrashRecoveryEmptyLog(false, false);
   }
   
+  public void testCrashRecoveryEmptyLogBothDirsNoUpdateSeenTxId()
+      throws Exception {
+    doTestCrashRecoveryEmptyLog(true, false);
+  }
+
   /**
    * Test that the NN handles the corruption properly
    * after it crashes just after creating an edit log
@@ -647,8 +657,14 @@ public class TestEditLog extends TestCase {
    * will only be in one of the directories. In both cases, the
    * NN should fail to start up, because it's aware that txid 3
    * was reached, but unable to find a non-corrupt log starting there.
+   * @param updateTransactionIdFile if true update the seen_txid file.
+   * If false, the it will not be updated. This will simulate a case 
+   * where the NN crashed between creating the new segment and updating
+   * seen_txid. 
    */
-  private void doTestCrashRecoveryEmptyLog(boolean inBothDirs) throws Exception {
+  private void doTestCrashRecoveryEmptyLog(boolean inBothDirs, 
+                                           boolean updateTransactionIdFile) 
+      throws Exception {
     // start a cluster 
     Configuration conf = new HdfsConfiguration();
     MiniDFSCluster cluster = null;
@@ -669,7 +685,9 @@ public class TestEditLog extends TestCase {
       NNStorage storage = new NNStorage(conf, 
                                         Collections.<URI>emptyList(),
                                         Lists.newArrayList(uri));
-      storage.writeTransactionIdFileToStorage(3);
+      if (updateTransactionIdFile) {
+        storage.writeTransactionIdFileToStorage(3);
+      }
       storage.close();
 
       new EditLogFileOutputStream(log, 1024).create();

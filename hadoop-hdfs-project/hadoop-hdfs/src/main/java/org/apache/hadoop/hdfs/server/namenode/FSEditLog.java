@@ -18,6 +18,7 @@
 package org.apache.hadoop.hdfs.server.namenode;
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -35,11 +36,13 @@ import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
+import org.apache.hadoop.hdfs.server.namenode.JournalManager.CorruptionException;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
 import org.apache.hadoop.security.token.delegation.DelegationKey;
+import org.apache.hadoop.io.IOUtils;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -1069,22 +1072,34 @@ public class FSEditLog  {
   }
 
   /**
-   * Find the best editlog input stream to read from txid.
+   * Find the best editlog input stream to read from txid. In this case
+   * best means the editlog which has the largest continuous range of 
+   * transactions starting from the transaction id, fromTxId.
+   *
+   * If a journal throws an CorruptionException while reading from a txn id,
+   * it means that it has more transactions, but can't find any from fromTxId. 
+   * If this is the case and no other journal has transactions, we should throw
+   * an exception as it means more transactions exist, we just can't load them.
    *
    * @param fromTxId Transaction id to start from.
    * @return a edit log input stream with tranactions fromTxId 
    *         or null if no more exist
    */
-  private EditLogInputStream selectStream(long fromTxId) throws IOException {
+  private EditLogInputStream selectStream(long fromTxId) 
+      throws IOException {
     JournalManager bestjm = null;
     long bestjmNumTxns = 0;
+    CorruptionException corruption = null;
 
     for (JournalAndStream jas : journals) {
       JournalManager candidate = jas.getManager();
       long candidateNumTxns = 0;
       try {
         candidateNumTxns = candidate.getNumberOfTransactions(fromTxId);
+      } catch (CorruptionException ce) {
+        corruption = ce;
       } catch (IOException ioe) {
+        LOG.warn("Error reading number of transactions from " + candidate);
         continue; // error reading disk, just skip
       }
       
@@ -1094,8 +1109,18 @@ public class FSEditLog  {
       }
     }
     
+    
     if (bestjm == null) {
-      return null;
+      /**
+       * If all candidates either threw a CorruptionException or
+       * found 0 transactions, then a gap exists. 
+       */
+      if (corruption != null) {
+        throw new IOException("Gap exists in logs from " 
+                              + fromTxId, corruption);
+      } else {
+        return null;
+      }
     }
 
     return bestjm.getInputStream(fromTxId);
@@ -1118,23 +1143,39 @@ public class FSEditLog  {
    * @param fromTxId first transaction in the selected streams
    * @param toAtLeast the selected streams must contain this transaction
    */
-  Iterable<EditLogInputStream> selectInputStreams(long fromTxId, long toAtLeastTxId) 
+  Collection<EditLogInputStream> selectInputStreams(long fromTxId, long toAtLeastTxId) 
       throws IOException {
     List<EditLogInputStream> streams = Lists.newArrayList();
     
+    boolean gapFound = false;
     EditLogInputStream stream = selectStream(fromTxId);
     while (stream != null) {
       fromTxId = stream.getLastTxId() + 1;
       streams.add(stream);
-      stream = selectStream(fromTxId);
+      try {
+        stream = selectStream(fromTxId);
+      } catch (IOException ioe) {
+        gapFound = true;
+        break;
+      }
     }
-    if (fromTxId <= toAtLeastTxId) {
+    if (fromTxId <= toAtLeastTxId || gapFound) {
+      closeAllStreams(streams);
       throw new IOException("No non-corrupt logs for txid " 
                             + fromTxId);
     }
     return streams;
   }
 
+  /** 
+   * Close all the streams in a collection
+   * @param streams The list of streams to close
+   */
+  static void closeAllStreams(Iterable<EditLogInputStream> streams) {
+    for (EditLogInputStream s : streams) {
+      IOUtils.closeStream(s);
+    }
+  }
 
   /**
    * Container for a JournalManager paired with its currently

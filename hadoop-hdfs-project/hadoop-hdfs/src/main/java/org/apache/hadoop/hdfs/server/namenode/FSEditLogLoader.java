@@ -468,8 +468,15 @@ public class FSEditLogLoader {
         }
         if (firstTxId == FSConstants.INVALID_TXID) {
           firstTxId = op.txid;
-        } 
-        lastTxId = op.txid;
+        }
+        if (lastTxId == FSConstants.INVALID_TXID
+            || op.txid == lastTxId + 1) {
+          lastTxId = op.txid;
+        } else {
+          FSImage.LOG.error("Out of order txid found. Found " + op.txid 
+                            + ", expected " + (lastTxId + 1));
+          break;
+        }
         numValid++;
       }
     } catch (Throwable t) {

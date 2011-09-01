@@ -60,12 +60,16 @@ class BackupJournalManager implements JournalManager {
 
   @Override
   public long getNumberOfTransactions(long fromTxnId) 
-      throws IOException {
+      throws IOException, CorruptionException {
+    // This JournalManager is never used for input. Therefore it cannot
+    // return any transactions
     return 0;
   }
   
   @Override
   public EditLogInputStream getInputStream(long fromTxnId) throws IOException {
+    // This JournalManager is never used for input. Therefore it cannot
+    // return any transactions
     throw new IOException("Unsupported operation");
   }
 
@@ -75,5 +79,10 @@ class BackupJournalManager implements JournalManager {
 
   public boolean matchesRegistration(NamenodeRegistration bnReg) {
     return bnReg.getAddress().equals(this.bnReg.getAddress());
+  }
+
+  @Override
+  public String toString() {
+    return "BackupJournalManager";
   }
 }
