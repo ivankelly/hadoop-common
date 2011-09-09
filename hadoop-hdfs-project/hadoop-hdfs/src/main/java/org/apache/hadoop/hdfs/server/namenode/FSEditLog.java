@@ -202,6 +202,13 @@ public class FSEditLog  {
       endCurrentLogSegment(true);
     }
 
+    mapJournalsAndReportErrors(new JournalClosure() {
+      @Override
+      public void apply(JournalAndStream jas) throws IOException {
+        jas.close();
+      }
+    }, "closing journal manager");
+
     state = State.CLOSED;
   }
 
@@ -871,7 +878,7 @@ public class FSEditLog  {
     state = State.IN_SEGMENT;
 
     if (writeHeaderTxn) {
-      logEdit(LogSegmentOp.getInstance(
+      logEdit(NoOp.getInstance(
           FSEditLogOpCodes.OP_START_LOG_SEGMENT));
       logSync();
     }
@@ -887,7 +894,7 @@ public class FSEditLog  {
         "Bad state: %s", state);
     
     if (writeEndTxn) {
-      logEdit(LogSegmentOp.getInstance(
+      logEdit(NoOp.getInstance(
           FSEditLogOpCodes.OP_END_LOG_SEGMENT));
       logSync();
     }
@@ -900,7 +907,7 @@ public class FSEditLog  {
       @Override
       public void apply(JournalAndStream jas) throws IOException {
         if (jas.isActive()) {
-          jas.close(lastTxId);
+          jas.endLogSegment(lastTxId);
         }
       }
     }, "ending log segment");
@@ -1267,15 +1274,20 @@ public class FSEditLog  {
       segmentStartsAtTxId = txId;
     }
 
-    private void close(long lastTxId) throws IOException {
+    public void endLogSegment(long lastTxId) throws IOException {
       Preconditions.checkArgument(lastTxId >= segmentStartsAtTxId,
           "invalid segment: lastTxId %s >= " +
           "segment starting txid %s", lastTxId, segmentStartsAtTxId);
           
-      if (stream == null) return;
-      stream.close();
-      manager.finalizeLogSegment(segmentStartsAtTxId, lastTxId);
-      stream = null;
+      if (stream != null) {
+        stream.close();
+        manager.finalizeLogSegment(segmentStartsAtTxId, lastTxId);
+        stream = null;
+      }
+    }
+
+    public void close() throws IOException {
+      manager.close();
     }
     
     @VisibleForTesting

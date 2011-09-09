@@ -71,6 +71,9 @@ class FileJournalManager implements JournalManager {
     this.sd = sd;
   }
 
+  @Override 
+  public void close() throws IOException {}
+
   @Override
   synchronized public EditLogOutputStream startLogSegment(long txid) 
       throws IOException {

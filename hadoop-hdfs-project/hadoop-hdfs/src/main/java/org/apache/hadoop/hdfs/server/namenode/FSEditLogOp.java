@@ -65,7 +65,7 @@ import java.io.EOFException;
 @InterfaceStability.Unstable
 public abstract class FSEditLogOp {
   final FSEditLogOpCodes opCode;
-  long txid;
+  public long txid;
 
 
   @SuppressWarnings("deprecation")
@@ -100,9 +100,11 @@ public abstract class FSEditLogOp {
                       new CancelDelegationTokenOp());
         instances.put(OP_UPDATE_MASTER_KEY, new UpdateMasterKeyOp());
         instances.put(OP_START_LOG_SEGMENT,
-                      new LogSegmentOp(OP_START_LOG_SEGMENT));
+                      new NoOp(OP_START_LOG_SEGMENT));
         instances.put(OP_END_LOG_SEGMENT,
-                      new LogSegmentOp(OP_END_LOG_SEGMENT));
+                      new NoOp(OP_END_LOG_SEGMENT));
+        instances.put(OP_NOOP, new NoOp(OP_NOOP));
+
         return instances;
       }
   };
@@ -1221,15 +1223,16 @@ public abstract class FSEditLogOp {
     }
   }
   
-  static class LogSegmentOp extends FSEditLogOp {
-    private LogSegmentOp(FSEditLogOpCodes code) {
+  static class NoOp extends FSEditLogOp {
+    private NoOp(FSEditLogOpCodes code) {
       super(code);
       assert code == OP_START_LOG_SEGMENT ||
-             code == OP_END_LOG_SEGMENT : "Bad op: " + code;
+             code == OP_END_LOG_SEGMENT ||
+             code == OP_NOOP : "Bad op: " + code;
     }
 
-    static LogSegmentOp getInstance(FSEditLogOpCodes code) {
-      return (LogSegmentOp)opInstances.get().get(code);
+    static NoOp getInstance(FSEditLogOpCodes code) {
+      return (NoOp)opInstances.get().get(code);
     }
 
     public void readFields(DataInputStream in, int logVersion)

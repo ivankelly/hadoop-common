@@ -27,7 +27,7 @@ import java.io.IOException;
  * It should stream bytes from the storage exactly as they were written
  * into the #{@link EditLogOutputStream}.
  */
-abstract class EditLogInputStream implements JournalStream, Closeable {
+public abstract class EditLogInputStream implements JournalStream, Closeable {
   /** 
    * @return the first transaction which will be found in this stream
    */
@@ -74,5 +74,5 @@ abstract class EditLogInputStream implements JournalStream, Closeable {
   /**
    * Return the size of the current edits log.
    */
-  abstract long length() throws IOException;
+  public abstract long length() throws IOException;
 }

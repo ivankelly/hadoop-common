@@ -78,12 +78,12 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
   }
 
   @Override // EditLogOutputStream
-  void write(FSEditLogOp op) throws IOException {
+  public void write(FSEditLogOp op) throws IOException {
     doubleBuf.writeOp(op);
  }
 
   @Override
-  void writeRaw(byte[] bytes, int offset, int length) throws IOException {
+  public void writeRaw(byte[] bytes, int offset, int length) throws IOException {
     throw new IOException("Not supported");
   }
 
@@ -91,7 +91,7 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
    * There is no persistent storage. Just clear the buffers.
    */
   @Override // EditLogOutputStream
-  void create() throws IOException {
+  public void create() throws IOException {
     assert doubleBuf.isFlushed() : "previous data is not flushed yet";
     this.doubleBuf = new EditsDoubleBuffer(DEFAULT_BUFFER_SIZE);
   }
@@ -117,7 +117,7 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
   }
 
   @Override // EditLogOutputStream
-  void setReadyToFlush() throws IOException {
+  public void setReadyToFlush() throws IOException {
     doubleBuf.setReadyToFlush();
   }
 
@@ -147,7 +147,7 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
    * This criteria should not be used for backup streams.
    */
   @Override // EditLogOutputStream
-  long length() throws IOException {
+  public long length() throws IOException {
     return 0;
   }
 

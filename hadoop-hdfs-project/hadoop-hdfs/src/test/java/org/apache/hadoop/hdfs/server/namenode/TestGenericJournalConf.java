@@ -119,6 +119,9 @@ class DummyJournalManager implements JournalManager {
     return null;
   }
 
+  public void close() throws IOException {
+  }
+
   public long getNumberOfTransactions(long fromTxnId) 
       throws IOException {
     return 0;
@@ -152,10 +155,10 @@ class DummyEditLogOutputStream extends EditLogOutputStream {
   public void writeRaw(byte[] bytes, int offset, int length)
       throws IOException {}
 
-  void create() throws IOException {}
+  public void create() throws IOException {}
   public void close() throws IOException {}
   public void abort() throws IOException {}
-  void setReadyToFlush() throws IOException {}
+  public void setReadyToFlush() throws IOException {}
   protected void flushAndSync() throws IOException {}
-  long length() throws IOException { return 0; }
+  public long length() throws IOException { return 0; }
 }

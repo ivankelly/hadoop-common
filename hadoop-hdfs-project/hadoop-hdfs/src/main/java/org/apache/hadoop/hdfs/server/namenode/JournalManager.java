@@ -28,7 +28,7 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorageRetentionManager.StorageP
  * each conceptual place of storage corresponds to exactly one instance of
  * this class, which is created when the EditLog is first opened.
  */
-interface JournalManager {
+public interface JournalManager {
   /**
    * Begin writing to a new segment of the log stream, which starts at
    * the given transaction ID.
@@ -81,6 +81,8 @@ interface JournalManager {
    * Recover segments which have not been finalized.
    */
   void recoverUnfinalizedSegments() throws IOException;
+
+  void close() throws IOException;
 
   /** 
    * Indicate that a journal is cannot be used to load a certain range of 
