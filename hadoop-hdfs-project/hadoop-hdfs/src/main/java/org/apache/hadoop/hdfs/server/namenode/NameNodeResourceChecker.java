@@ -33,6 +33,8 @@ import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.server.common.Util;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Collections2;
+import com.google.common.base.Predicate;
 
 /**
  * 
@@ -69,7 +71,18 @@ public class NameNodeResourceChecker {
         .getTrimmedStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKED_VOLUMES_KEY));
 
     addDirsToCheck(FSNamesystem.getNamespaceDirs(conf));
-    addDirsToCheck(FSNamesystem.getNamespaceEditsDirs(conf));
+    
+    Collection<URI> localEditDirs = Collections2.filter(
+        FSNamesystem.getNamespaceEditsDirs(conf),
+        new Predicate<URI>() {
+          public boolean apply(URI input) {
+            if (input.getScheme().equals("file")) {
+              return true;
+            }
+            return false;
+          }
+        });
+    addDirsToCheck(localEditDirs);
     addDirsToCheck(extraCheckedVolumes);
   }
 
@@ -83,10 +96,6 @@ public class NameNodeResourceChecker {
   private void addDirsToCheck(Collection<URI> directoriesToCheck)
       throws IOException {
     for (URI directoryUri : directoriesToCheck) {
-      if (!directoryUri.getScheme().equals("file")
-          || directoryUri.getScheme() == null) {
-        continue;
-      }
       File dir = new File(directoryUri.getPath());
       if (!dir.exists()) {
         throw new IOException("Missing directory "+dir.getAbsolutePath());

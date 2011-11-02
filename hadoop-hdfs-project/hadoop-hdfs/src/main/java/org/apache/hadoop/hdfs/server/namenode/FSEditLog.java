@@ -1005,23 +1005,34 @@ public class FSEditLog  {
   }
 
   /**
-   * Retrieve the implementation classname for a Journal scheme.
+   * Retrieve the implementation class for a Journal scheme.
    * @param conf The configuration to retrieve the information from
    * @param uriScheme The uri scheme to look up.
-   * @return the classname of the journal implementation 
-   *    or null if nothing found.
+   * @return the class of the journal implementation
+   * @throws IllegalArgumentException if no class is configured for uri
    */
-  static String getJournalClass(Configuration conf, 
-                                String uriScheme) {
-    String key = DFSConfigKeys.DFS_NAMENODE_EDITS_PLUGIN_BASE + "." + uriScheme;
-    String classname = conf.get(key);
-    if (classname == null) {
-      LOG.warn("No class configured for " +uriScheme + ", " + key + " is empty");
+  static Class<? extends JournalManager> getJournalClass(Configuration conf,
+                               String uriScheme) {
+    String key
+      = DFSConfigKeys.DFS_NAMENODE_EDITS_PLUGIN_PREFIX + "." + uriScheme;
+    Class <? extends JournalManager> clazz = null;
+    try {
+      clazz = conf.getClass(key, null, JournalManager.class);
+    } catch (RuntimeException re) {
+      throw new IllegalArgumentException(
+          "Invalid class specified for " + uriScheme, re);
     }
-    return classname;
+      
+    if (clazz == null) {
+      LOG.warn("No class configured for " +uriScheme
+               + ", " + key + " is empty");
+      throw new IllegalArgumentException(
+          "No class configured for " + uriScheme);
+    }
+    return clazz;
   }
 
-  /** 
+  /**
    * Construct a custom journal manager.
    * The class to construct is taken from the configuration.
    * @param uri Uri to construct
@@ -1029,23 +1040,16 @@ public class FSEditLog  {
    * @throws IllegalArgumentException if no class is configured for uri
    */
   private JournalManager createJournal(URI uri) {
-    String classname = getJournalClass(conf, uri.getScheme());
-    
-    if (classname != null) {
-      try {
-        Class <? extends JournalManager> cls
-          = Class.forName(classname).asSubclass(
-              JournalManager.class);
-        Constructor<? extends JournalManager> cons
-          = cls.getConstructor(Configuration.class, URI.class);
-        
-        return cons.newInstance(conf, uri);
-      } catch (Exception e) {
-        throw new IllegalArgumentException("Unable to construct journal, " 
-                                           + uri, e);
-      }
-    } else {
-      throw new IllegalArgumentException("No class configured for " + uri);
+    Class<? extends JournalManager> clazz
+      = getJournalClass(conf, uri.getScheme());
+
+    try {
+      Constructor<? extends JournalManager> cons
+        = clazz.getConstructor(Configuration.class, URI.class);
+      return cons.newInstance(conf, uri);
+    } catch (Exception e) {
+      throw new IllegalArgumentException("Unable to construct journal, "
+                                         + uri, e);
     }
   }
 }
