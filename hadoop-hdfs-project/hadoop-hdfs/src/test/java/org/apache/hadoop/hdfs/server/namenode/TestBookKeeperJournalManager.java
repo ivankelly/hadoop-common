@@ -127,7 +127,7 @@ public class TestBookKeeperJournalManager {
     long txid = 1;
     EditLogOutputStream out = bkjm.startLogSegment(1);
     for (long i = 1 ; i <= 100; i++) {
-      FSEditLogOp op = FSEditLogOp.NoOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
+      FSEditLogOp op = FSEditLogOp.LogSegmentOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
       op.setTransactionId(i);
       out.write(op);
     }
@@ -148,7 +148,7 @@ public class TestBookKeeperJournalManager {
     long txid = 1;
     EditLogOutputStream out = bkjm.startLogSegment(1);
     for (long i = 1 ; i <= 100; i++) {
-      FSEditLogOp op = FSEditLogOp.NoOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
+      FSEditLogOp op = FSEditLogOp.LogSegmentOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
       op.setTransactionId(i);
       out.write(op);
     }
@@ -169,7 +169,7 @@ public class TestBookKeeperJournalManager {
       long start = txid;
       EditLogOutputStream out = bkjm.startLogSegment(start);
       for (long j = 1 ; j <= DEFAULT_SEGMENT_SIZE; j++) {
-        FSEditLogOp op = FSEditLogOp.NoOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
+        FSEditLogOp op = FSEditLogOp.LogSegmentOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
         op.setTransactionId(txid++);
         out.write(op);
       }
@@ -203,7 +203,7 @@ public class TestBookKeeperJournalManager {
       long start = txid;
       EditLogOutputStream out = bkjm.startLogSegment(start);
       for (long j = 1 ; j <= DEFAULT_SEGMENT_SIZE; j++) {
-        FSEditLogOp op = FSEditLogOp.NoOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
+        FSEditLogOp op = FSEditLogOp.LogSegmentOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
         op.setTransactionId(txid++);
         out.write(op);
       }
@@ -215,7 +215,7 @@ public class TestBookKeeperJournalManager {
     long start = txid;
     EditLogOutputStream out = bkjm.startLogSegment(start);
     for (long j = 1 ; j <= DEFAULT_SEGMENT_SIZE/2; j++) {
-      FSEditLogOp op = FSEditLogOp.NoOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
+      FSEditLogOp op = FSEditLogOp.LogSegmentOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
       op.setTransactionId(txid++);
       out.write(op);
     }
@@ -241,7 +241,7 @@ public class TestBookKeeperJournalManager {
     long start = txid;
     EditLogOutputStream out = bkjm.startLogSegment(txid);
     for (long j = 1 ; j <= DEFAULT_SEGMENT_SIZE; j++) {
-      FSEditLogOp op = FSEditLogOp.NoOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
+      FSEditLogOp op = FSEditLogOp.LogSegmentOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
       op.setTransactionId(txid++);
       out.write(op);
     }
@@ -274,7 +274,7 @@ public class TestBookKeeperJournalManager {
     assertNotNull(out);
 
     for (long j = 1 ; j <= DEFAULT_SEGMENT_SIZE; j++) {
-      FSEditLogOp op = FSEditLogOp.NoOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
+      FSEditLogOp op = FSEditLogOp.LogSegmentOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
       op.setTransactionId(txid++);
       out.write(op);
     }
@@ -314,7 +314,7 @@ public class TestBookKeeperJournalManager {
     final long numTransactions = 10000;
     EditLogOutputStream out = bkjm.startLogSegment(1);
     for (long i = 1 ; i <= numTransactions; i++) {
-      FSEditLogOp op = FSEditLogOp.NoOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
+      FSEditLogOp op = FSEditLogOp.LogSegmentOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
       op.setTransactionId(i);
       out.write(op);
     }
@@ -339,7 +339,7 @@ public class TestBookKeeperJournalManager {
     EditLogOutputStream out = bkjm.startLogSegment(1);
     long txid = 1;
     for (long i = 1 ; i <= 100; i++) {
-      FSEditLogOp op = FSEditLogOp.NoOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
+      FSEditLogOp op = FSEditLogOp.LogSegmentOp.getInstance(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
       op.setTransactionId(i);
       out.write(op);
     }

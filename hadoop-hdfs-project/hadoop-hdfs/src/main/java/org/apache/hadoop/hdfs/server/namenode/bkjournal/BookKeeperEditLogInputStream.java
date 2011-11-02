@@ -28,7 +28,6 @@ import org.apache.hadoop.io.DataInputBuffer;
 import org.apache.hadoop.hdfs.server.namenode.EditLogInputStream;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogLoader;
-import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.LedgerEntry;
 
@@ -84,7 +83,7 @@ public class BookKeeperEditLogInputStream extends EditLogInputStream {
   @Override
   public FSEditLogOp readOp() throws IOException {
     FSEditLogOp op = reader.readOp();
-    LOG.info("IKTODO txid " + op.txid + " pos " + getPosition());
+    //LOG.info("IKTODO txid " + op.txid + " pos " + getPosition());
     return op;
   }
 

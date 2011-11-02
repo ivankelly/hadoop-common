@@ -190,7 +190,7 @@ public class BookKeeperJournalManager implements JournalManager, Watcher {
   @Override 
   public void close() throws IOException {
     try {
-      bkc.halt();
+      bkc.close();
       zkc.close();
     } catch (Exception e) {
       throw new IOException("Couldn't close zookeeper client", e);
@@ -319,10 +319,10 @@ public class BookKeeperJournalManager implements JournalManager, Watcher {
       FSEditLogOp op = reader.readOp();
       long endTxId = HdfsConstants.INVALID_TXID;
       while (op != null) {
-        LOG.info("readop " + op.txid);
+        //LOG.info("readop " + op.txid);
         if (endTxId == HdfsConstants.INVALID_TXID 
-            || op.txid == endTxId+1) {
-          endTxId = op.txid;
+            || op.getTransactionId() == endTxId+1) {
+          endTxId = op.getTransactionId();
         }
         op = reader.readOp();
       }

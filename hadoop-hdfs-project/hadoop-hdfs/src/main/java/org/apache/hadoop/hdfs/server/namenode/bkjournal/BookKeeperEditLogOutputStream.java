@@ -23,6 +23,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.Arrays;
 
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.Writer;
@@ -74,6 +75,8 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
       lh.close();
     } catch (InterruptedException ie) {
       throw new IOException("Interrupted waiting on close", ie);
+    } catch (BKException bke) {
+      throw new IOException("BookKeeper error during close", bke);
     }
   }
 
@@ -83,6 +86,8 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
       lh.close();
     } catch (InterruptedException ie) {
       throw new IOException("Interrupted waiting on close", ie);
+    } catch (BKException bke) {
+      throw new IOException("BookKeeper error during abort", bke);
     }
 
     wl.release();
@@ -154,21 +159,5 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
         l.countDown();
       }
     }
-  }
-
-  @Override
-  public long length() throws IOException {
-    return lh.getLength();
-  }
-
-  @Override
-  public String getName() {
-    return "IKFIXME";
-  }
-
-  @Override
-  public JournalType getType() {
-    assert (false);
-    return null;
   }
 }
