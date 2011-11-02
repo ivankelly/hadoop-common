@@ -26,12 +26,12 @@ import static org.apache.hadoop.hdfs.server.common.Util.now;
  * A generic abstract class to support journaling of edits logs into 
  * a persistent storage.
  */
-abstract class EditLogOutputStream {
+public abstract class EditLogOutputStream {
   // these are statistics counters
   private long numSync;        // number of sync(s) to disk
   private long totalTimeSync;  // total time to sync
 
-  EditLogOutputStream() {
+  public EditLogOutputStream() throws IOException {
     numSync = totalTimeSync = 0;
   }
 
@@ -41,7 +41,7 @@ abstract class EditLogOutputStream {
    * @param op operation
    * @throws IOException
    */
-  abstract void write(FSEditLogOp op) throws IOException;
+  abstract public void write(FSEditLogOp op) throws IOException;
 
   /**
    * Write raw data to an edit log. This data should already have
@@ -54,7 +54,7 @@ abstract class EditLogOutputStream {
    * @param length number of bytes to write
    * @throws IOException
    */
-  abstract void writeRaw(byte[] bytes, int offset, int length)
+  abstract public void writeRaw(byte[] bytes, int offset, int length)
       throws IOException;
 
   /**
@@ -62,7 +62,7 @@ abstract class EditLogOutputStream {
    * 
    * @throws IOException
    */
-  abstract void create() throws IOException;
+  abstract public void create() throws IOException;
 
   /**
    * Close the journal.
@@ -81,7 +81,7 @@ abstract class EditLogOutputStream {
    * All data that has been written to the stream so far will be flushed.
    * New data can be still written to the stream while flushing is performed.
    */
-  abstract void setReadyToFlush() throws IOException;
+  abstract public void setReadyToFlush() throws IOException;
 
   /**
    * Flush and sync all data that is ready to be flush 

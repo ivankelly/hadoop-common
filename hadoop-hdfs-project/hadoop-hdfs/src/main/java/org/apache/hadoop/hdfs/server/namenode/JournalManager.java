@@ -28,7 +28,7 @@ import java.io.IOException;
  * each conceptual place of storage corresponds to exactly one instance of
  * this class, which is created when the EditLog is first opened.
  */
-interface JournalManager extends Closeable {
+public interface JournalManager extends Closeable {
   /**
    * Begin writing to a new segment of the log stream, which starts at
    * the given transaction ID.
