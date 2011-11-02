@@ -77,8 +77,7 @@ public class TestGenericJournalConf {
     
     try {
       conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_PLUGIN_PREFIX + ".dummy",
-               "org.apache.hadoop.hdfs.server.namenode.TestGenericJournalConf" 
-               + "$BadConstructorJournalManager");
+               BadConstructorJournalManager.class.getName());
       conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY,
                "dummy://test");
       cluster = new MiniDFSCluster.Builder(conf).numDataNodes(0).build();
@@ -89,7 +88,9 @@ public class TestGenericJournalConf {
         fail("Should have failed with unable to construct exception");
       }
     } finally {
-      cluster.shutdown();
+      if (cluster != null) {
+        cluster.shutdown();
+      }
     }
   }
 
@@ -103,9 +104,7 @@ public class TestGenericJournalConf {
     Configuration conf = new Configuration();
 
     conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_PLUGIN_PREFIX + ".dummy",
-             "org.apache.hadoop.hdfs.server.namenode.TestGenericJournalConf" 
-             + "$DummyJournalManager"
-             );
+             DummyJournalManager.class.getName());
     conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY,
              "dummy://test");
     cluster = new MiniDFSCluster.Builder(conf).numDataNodes(0).build();
