@@ -43,9 +43,14 @@ public class TestGenericJournalConf {
 
     conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY,
              "dummy://test");
-    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(0).build();
-    cluster.waitActive();
-    cluster.shutdown();
+    try {
+      cluster = new MiniDFSCluster.Builder(conf).numDataNodes(0).build();
+      cluster.waitActive();
+    } finally {
+      if (cluster != null) {
+        cluster.shutdown();
+      }
+    }
   }
 
   /**
@@ -61,9 +66,15 @@ public class TestGenericJournalConf {
              "org.apache.hadoop.nonexistent");
     conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY,
              "dummy://test");
-    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(0).build();
-    cluster.waitActive();
-    cluster.shutdown();
+
+    try {
+      cluster = new MiniDFSCluster.Builder(conf).numDataNodes(0).build();
+      cluster.waitActive();
+    } finally {
+      if (cluster != null) {
+        cluster.shutdown();
+      }
+    }
   }
 
   /**
@@ -75,11 +86,11 @@ public class TestGenericJournalConf {
     MiniDFSCluster cluster = null;
     Configuration conf = new Configuration();
     
+    conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_PLUGIN_PREFIX + ".dummy",
+             BadConstructorJournalManager.class.getName());
+    conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY,
+             "dummy://test");
     try {
-      conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_PLUGIN_PREFIX + ".dummy",
-               BadConstructorJournalManager.class.getName());
-      conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY,
-               "dummy://test");
       cluster = new MiniDFSCluster.Builder(conf).numDataNodes(0).build();
       cluster.waitActive();
       fail("Should have failed before this point");
@@ -107,9 +118,14 @@ public class TestGenericJournalConf {
              DummyJournalManager.class.getName());
     conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY,
              "dummy://test");
-    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(0).build();
-    cluster.waitActive();
-    cluster.shutdown();
+    try {
+      cluster = new MiniDFSCluster.Builder(conf).numDataNodes(0).build();
+      cluster.waitActive();
+    } finally {
+      if (cluster != null) {
+        cluster.shutdown();
+      }
+    }
   }
 
   public static class DummyJournalManager implements JournalManager {

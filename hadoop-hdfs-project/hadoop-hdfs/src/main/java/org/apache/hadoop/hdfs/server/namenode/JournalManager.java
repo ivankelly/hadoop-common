@@ -71,7 +71,6 @@ public interface JournalManager extends Closeable {
    *
    * @param minTxIdToKeep the earliest txid that must be retained after purging
    *                      old logs
-   * @param purger the purging implementation to use
    * @throws IOException if purging fails
    */
   void purgeLogsOlderThan(long minTxIdToKeep)
