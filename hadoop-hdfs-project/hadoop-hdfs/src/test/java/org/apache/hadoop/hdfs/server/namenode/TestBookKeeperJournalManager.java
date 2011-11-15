@@ -69,6 +69,7 @@ public class TestBookKeeperJournalManager {
   static final Log LOG = LogFactory.getLog(TestBookKeeperJournalManager.class);
   
   private static final long DEFAULT_SEGMENT_SIZE = 1000;
+  private static final String zkEnsemble = "localhost:2181";
 
   private static Thread bkthread;
   protected static Configuration conf = new Configuration();
@@ -92,16 +93,16 @@ public class TestBookKeeperJournalManager {
       };
     bkthread.start();
     
-    if (!LocalBookKeeper.waitForServerUp("localhost:2181", 10000)) {
+    if (!LocalBookKeeper.waitForServerUp(zkEnsemble, 10000)) {
       throw new Exception("Error starting zookeeper/bookkeeper");
     }
+    
     Thread.sleep(10);
-    conf.set(BookKeeperJournalManager.BKJM_ZOOKEEPER_QUORUM, "localhost:2181");
   }
   
   @Before
   public void setup() throws Exception {
-    zkc = new ZooKeeper("localhost:2181", 3600, new Watcher() {
+    zkc = new ZooKeeper(zkEnsemble, 3600, new Watcher() {
         public void process(WatchedEvent event) {}
       });
   }
@@ -121,9 +122,8 @@ public class TestBookKeeperJournalManager {
 
   @Test
   public void testSimpleWrite() throws Exception {
-    conf.set(BookKeeperJournalManager.BKJM_ZOOKEEPER_PATH, "/hdfsjournal-simplewrite");
     BookKeeperJournalManager bkjm = new BookKeeperJournalManager(conf,
-                                                                 URI.create("bookkeeper://foobar"));
+        URI.create("bookkeeper://" + zkEnsemble + "/hdfsjournal-simplewrite"));
     long txid = 1;
     EditLogOutputStream out = bkjm.startLogSegment(1);
     for (long i = 1 ; i <= 100; i++) {
@@ -142,9 +142,8 @@ public class TestBookKeeperJournalManager {
 
   @Test
   public void testNumberOfTransactions() throws Exception {
-    conf.set(BookKeeperJournalManager.BKJM_ZOOKEEPER_PATH, "/hdfsjournal-txncount");
     BookKeeperJournalManager bkjm = new BookKeeperJournalManager(conf, 
-                                                                 URI.create("bookkeeper://foobar"));
+        URI.create("bookkeeper://" + zkEnsemble + "/hdfsjournal-txncount"));
     long txid = 1;
     EditLogOutputStream out = bkjm.startLogSegment(1);
     for (long i = 1 ; i <= 100; i++) {
@@ -161,9 +160,8 @@ public class TestBookKeeperJournalManager {
 
   @Test 
   public void testNumberOfTransactionsWithGaps() throws Exception {
-    conf.set(BookKeeperJournalManager.BKJM_ZOOKEEPER_PATH, "/hdfsjournal-gaps");
     BookKeeperJournalManager bkjm = new BookKeeperJournalManager(conf, 
-                                                                 URI.create("bookkeeper://foobar"));
+        URI.create("bookkeeper://" + zkEnsemble + "/hdfsjournal-gaps"));
     long txid = 1;
     for (long i = 0; i < 3; i++) {
       long start = txid;
@@ -195,9 +193,8 @@ public class TestBookKeeperJournalManager {
 
   @Test
   public void testNumberOfTransactionsWithInprogressAtEnd() throws Exception {
-    conf.set(BookKeeperJournalManager.BKJM_ZOOKEEPER_PATH, "/hdfsjournal-inprogressAtEnd");
     BookKeeperJournalManager bkjm = new BookKeeperJournalManager(conf, 
-                                                                 URI.create("bookkeeper://foobar"));
+        URI.create("bookkeeper://" + zkEnsemble + "/hdfsjournal-inprogressAtEnd"));
     long txid = 1;
     for (long i = 0; i < 3; i++) {
       long start = txid;
@@ -234,9 +231,8 @@ public class TestBookKeeperJournalManager {
    */
   @Test
   public void testWriteRestartFrom1() throws Exception {
-    conf.set(BookKeeperJournalManager.BKJM_ZOOKEEPER_PATH, "/hdfsjournal-restartFrom1");
     BookKeeperJournalManager bkjm = new BookKeeperJournalManager(conf, 
-                                                                 URI.create("bookkeeper://foobar"));
+        URI.create("bookkeeper://" + zkEnsemble + "/hdfsjournal-restartFrom1"));
     long txid = 1;
     long start = txid;
     EditLogOutputStream out = bkjm.startLogSegment(txid);
@@ -289,12 +285,11 @@ public class TestBookKeeperJournalManager {
 
   @Test
   public void testTwoWriters() throws Exception {
-    conf.set(BookKeeperJournalManager.BKJM_ZOOKEEPER_PATH, "/hdfsjournal-dualWriter");
     long start = 1;
     BookKeeperJournalManager bkjm1 = new BookKeeperJournalManager(conf, 
-                                                                  URI.create("bookkeeper://foobar"));
+        URI.create("bookkeeper://" + zkEnsemble + "/hdfsjournal-dualWriter"));
     BookKeeperJournalManager bkjm2 = new BookKeeperJournalManager(conf, 
-                                                                  URI.create("bookkeeper://foobar"));
+        URI.create("bookkeeper://" + zkEnsemble + "/hdfsjournal-dualWriter"));
     
     EditLogOutputStream out1 = bkjm1.startLogSegment(start);
     try {
@@ -307,9 +302,8 @@ public class TestBookKeeperJournalManager {
 
   @Test
   public void testSimpleRead() throws Exception {
-    conf.set(BookKeeperJournalManager.BKJM_ZOOKEEPER_PATH, "/hdfsjournal-simpleread");
     BookKeeperJournalManager bkjm = new BookKeeperJournalManager(conf, 
-                                                                 URI.create("bookkeeper://foobar"));
+        URI.create("bookkeeper://" + zkEnsemble + "/hdfsjournal-simpleread"));
     long txid = 1;
     final long numTransactions = 10000;
     EditLogOutputStream out = bkjm.startLogSegment(1);
@@ -333,9 +327,8 @@ public class TestBookKeeperJournalManager {
 
   @Test
   public void testSimpleRecovery() throws Exception {
-    conf.set(BookKeeperJournalManager.BKJM_ZOOKEEPER_PATH, "/hdfsjournal-simplerecovery");
     BookKeeperJournalManager bkjm = new BookKeeperJournalManager(conf, 
-                                                                 URI.create("bookkeeper://foobar"));
+        URI.create("bookkeeper://" + zkEnsemble + "/hdfsjournal-simplerecovery"));
     EditLogOutputStream out = bkjm.startLogSegment(1);
     long txid = 1;
     for (long i = 1 ; i <= 100; i++) {
