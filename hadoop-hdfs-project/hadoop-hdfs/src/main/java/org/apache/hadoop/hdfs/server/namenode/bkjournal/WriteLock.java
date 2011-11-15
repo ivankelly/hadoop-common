@@ -31,12 +31,22 @@ import java.util.List;
 import java.util.Collections;
 import java.util.Comparator;
 
+import java.net.InetAddress;
 import java.io.IOException;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-public class WriteLock implements Watcher {
+/**
+ * Distributed lock, using ZooKeeper. 
+ *
+ * The lock is vulnerable to timing issues. For example, the process could
+ * encounter a really long GC cycle between acquiring the lock, and writing to 
+ * a ledger. This could have timed out the lock, and another process could have
+ * acquired the lock and started writing to bookkeeper. Therefore other mechanisms
+ * are required to ensure correctness (i.e. Fencing).
+ */
+class WriteLock implements Watcher {
   static final Log LOG = LogFactory.getLog(WriteLock.class);
 
   private final ZooKeeper zkc;
@@ -51,7 +61,8 @@ public class WriteLock implements Watcher {
     this.zkc = zkc;
     try {
       if (zkc.exists(lockpath, false) == null) {
-        zkc.create(lockpath, new byte[] {'0'}, 
+        String localString = InetAddress.getLocalHost().toString();
+        zkc.create(lockpath, localString.getBytes(), 
                    Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
       }
     } catch (Exception e) {
@@ -159,7 +170,12 @@ public class WriteLock implements Watcher {
         try {
           zkc.exists(myznode, this); 
         } catch (Exception e) {
-          // TODO throw new IOException("Exception accessing Zookeeper", e);
+          LOG.warn("Could not set watch on lock, releasing", e);
+          try {
+            release();
+          } catch (IOException ioe) {
+            LOG.error("Could not release Zk lock", ioe);
+          }
         }
       }
     }

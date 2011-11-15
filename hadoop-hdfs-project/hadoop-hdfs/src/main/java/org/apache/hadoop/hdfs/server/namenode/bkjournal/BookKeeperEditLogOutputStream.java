@@ -37,16 +37,27 @@ import java.io.IOException;
 
 import java.util.zip.Checksum;
 
+/**
+ * Output stream for BookKeeper Journal.
+ * Multiple complete edit log entries are packed into a single bookkeeper
+ * entry before sending it over the network. The fact that the edit log entries are
+ * complete in the bookkeeper entries means that each bookkeeper log entry can be 
+ * read as a complete edit log. This is useful for recover, as we don't need to 
+ * read through the entire edit log segment to get the last written entry.
+ */
 class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCallback {
   private final DataOutputBuffer bufCurrent;
   private final AtomicInteger outstandingRequests;
-  private static final int DEFAULT_TRANSMISSION_THRESHOLD = 1024;
   private final int transmissionThreshold;
   private final LedgerHandle lh;
   private CountDownLatch syncLatch;
   private final WriteLock wl;
   private final Writer writer;
+  
+  /** 
+   * Construct an edit log output stream which writes to a ledger.
 
+   */
   protected BookKeeperEditLogOutputStream(Configuration conf,
                                           LedgerHandle lh, WriteLock wl) throws IOException {
     super();
@@ -59,7 +70,7 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
     this.wl.acquire();
     this.writer = new Writer(bufCurrent);
     this.transmissionThreshold = conf.getInt(BookKeeperJournalManager.BKJM_OUTPUT_BUFFER_SIZE, 
-                                             DEFAULT_TRANSMISSION_THRESHOLD);
+        BookKeeperJournalManager.BKJM_OUTPUT_BUFFER_SIZE_DEFAULT);
   }
 
   @Override
@@ -151,6 +162,7 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
     }
   }
 
+  @Override
   public void addComplete(int rc, LedgerHandle lh, long entryId, Object ctx) {
     synchronized(outstandingRequests) {
       outstandingRequests.decrementAndGet();

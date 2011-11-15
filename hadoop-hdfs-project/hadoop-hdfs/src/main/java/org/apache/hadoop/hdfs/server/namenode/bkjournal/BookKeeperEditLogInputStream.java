@@ -34,38 +34,57 @@ import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
+/**
+ * Input stream which reads from a BookKeeper ledger
+ */
 public class BookKeeperEditLogInputStream extends EditLogInputStream {
   static final Log LOG = LogFactory.getLog(BookKeeperEditLogInputStream.class);
 
   private final long firstTxId;
   private final long lastTxId;
   private final int logVersion;
-  private static final long READ_BLOCK_SIZE = 100; //IKTODO make configurable
   final LedgerHandle lh;
 
   private final FSEditLogOp.Reader reader;
   private final FSEditLogLoader.PositionTrackingInputStream tracker;
 
-  BookKeeperEditLogInputStream(LedgerHandle lh, 
-                               int logVersion,
-                               long firstTxId, 
-                               long lastTxId) throws IOException{
-    this.lh = lh;
-    this.firstTxId = firstTxId;
-    this.lastTxId = lastTxId;
-    this.logVersion = logVersion;
+  /**
+   * Construct BookKeeper edit log input stream. 
+   * Starts reading from the first entry of the ledger.
+   */
+  BookKeeperEditLogInputStream(LedgerHandle lh, EditLogLedgerMetadata metadata) 
+      throws IOException {
+    this(lh, metadata, 0);
+  }
 
-    BufferedInputStream bin = new BufferedInputStream(new LedgerInputStream(lh));
+  /**
+   * Construct BookKeeper edit log input stream. 
+   * Starts reading from firstBookKeeperEntry. This allows the stream
+   * to take a shortcut during recovery, as it doesn't have to read
+   * every edit log transaction to find out what the last one is.
+   */
+  BookKeeperEditLogInputStream(LedgerHandle lh, EditLogLedgerMetadata metadata,
+                               long firstBookKeeperEntry) 
+      throws IOException {
+    this.lh = lh;
+    this.firstTxId = metadata.getFirstTxId();
+    this.lastTxId = metadata.getLastTxId();
+    this.logVersion = metadata.getVersion();
+
+    BufferedInputStream bin = new BufferedInputStream(
+        new LedgerInputStream(lh, firstBookKeeperEntry));
     tracker = new FSEditLogLoader.PositionTrackingInputStream(bin);
     DataInputStream in = new DataInputStream(tracker);
 
     reader = new FSEditLogOp.Reader(in, logVersion);
   }
 
+  @Override
   public long getFirstTxId() throws IOException {
     return firstTxId;
   }
 
+  @Override
   public long getLastTxId() throws IOException {
     return lastTxId;
   }
@@ -75,19 +94,12 @@ public class BookKeeperEditLogInputStream extends EditLogInputStream {
     return logVersion;
   }
 
-
-  public int available() throws IOException {
-    throw new IOException("Doesn't make sense");
+  @Override
+  public FSEditLogOp readOp() throws IOException {
+    return reader.readOp();
   }
 
   @Override
-  public FSEditLogOp readOp() throws IOException {
-    FSEditLogOp op = reader.readOp();
-    //LOG.info("IKTODO txid " + op.txid + " pos " + getPosition());
-    return op;
-  }
-
-
   public void close() throws IOException {
     try {
       lh.close();
@@ -96,10 +108,12 @@ public class BookKeeperEditLogInputStream extends EditLogInputStream {
     }
   }
 
+  @Override
   public long getPosition() {
     return tracker.getPos();
   }
 
+  @Override
   public long length() throws IOException {
     return lh.getLength();
   }
@@ -116,24 +130,38 @@ public class BookKeeperEditLogInputStream extends EditLogInputStream {
     return null;
   }
 
+  /**
+   * Input stream implementation which can be used by 
+   * FSEditLogOp.Reader
+   */
   private static class LedgerInputStream extends InputStream {
-    private long readEntries = 0;
+    private long readEntries;
     InputStream entryStream = null;
     final LedgerHandle lh;
     private final long maxEntry;
 
-    LedgerInputStream(LedgerHandle lh) throws IOException {
+    /**
+     * Construct ledger input stream
+     * @param lh the ledger handle to read from
+     * @param firstBookKeeperEntry ledger entry to start reading from
+     */
+    LedgerInputStream(LedgerHandle lh, long firstBookKeeperEntry) 
+        throws IOException {
       this.lh = lh;
+      readEntries = firstBookKeeperEntry;
       try {
         maxEntry = lh.getLastAddConfirmed();
-        LOG.info("IKTODO maxEntry " + maxEntry);
       } catch (Exception e) {
         throw new IOException("Error reading last entry id", e);
       }
     }
-    
+
+    /**
+     * Get input stream representing next entry in the
+     * ledger.
+     * @return input stream, or null if no more entries
+     */
     private InputStream nextStream() throws IOException {
-      LOG.info("IKTODO nextStream");
       try {        
         if (readEntries > maxEntry) {
           return null;
@@ -151,38 +179,37 @@ public class BookKeeperEditLogInputStream extends EditLogInputStream {
       return null;
     }
 
+    @Override
     public int read() throws IOException {
       byte[] b = new byte[4];
       read(b, 0, 4);
       return (b[0] << 3 | b[1] << 2 | b[2] << 1 | b[3]);
     }
     
+    @Override
     public int read(byte[] b, int off, int len) throws IOException {
       try {
-      LOG.info("IKTODO read " + len);
-      int read = 0;
-      if (entryStream == null) {
-        entryStream = nextStream();
-      }
-
-      while (read < len) {
-        int thisread = entryStream.read(b, off+read, (len-read));
-        LOG.info("IKTODO thisread " + thisread);
-        if (thisread == -1) {
+        int read = 0;
+        if (entryStream == null) {
           entryStream = nextStream();
           if (entryStream == null) {
-            LOG.info("IKTODO read1 " + read);
-                  
             return read;
           }
-        } else {
-          read += thisread;
         }
-      }
-      LOG.info("IKTODO read2 " + read);
-            return read;
+
+        while (read < len) {
+          int thisread = entryStream.read(b, off+read, (len-read));
+          if (thisread == -1) {
+            entryStream = nextStream();
+            if (entryStream == null) {
+              return read;
+            }
+          } else {
+            read += thisread;
+          }
+        }
+        return read;
       } catch (IOException e) {
-        LOG.info("IKTODO", e);
         throw e;
       }
 
