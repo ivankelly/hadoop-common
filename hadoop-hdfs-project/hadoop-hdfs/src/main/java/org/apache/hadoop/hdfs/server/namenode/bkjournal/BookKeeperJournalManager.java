@@ -26,6 +26,7 @@ import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLog;
 import org.apache.hadoop.conf.Configuration;
 
+import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -182,7 +183,8 @@ public class BookKeeperJournalManager implements JournalManager {
             Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
       }
 
-      bkc = new BookKeeper(zkc);
+      bkc = new BookKeeper(new ClientConfiguration(),
+                           zkc);
     } catch (Exception e) {
       throw new IOException("Error initializing zk", e);
     }
