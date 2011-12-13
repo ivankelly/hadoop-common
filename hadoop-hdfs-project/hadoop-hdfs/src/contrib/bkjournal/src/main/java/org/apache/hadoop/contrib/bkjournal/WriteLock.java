@@ -15,13 +15,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hdfs.server.namenode.bkjournal;
+package org.apache.hadoop.contrib.bkjournal;
 
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs.Ids;
@@ -38,13 +37,13 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 /**
- * Distributed lock, using ZooKeeper. 
+ * Distributed lock, using ZooKeeper.
  *
  * The lock is vulnerable to timing issues. For example, the process could
- * encounter a really long GC cycle between acquiring the lock, and writing to 
+ * encounter a really long GC cycle between acquiring the lock, and writing to
  * a ledger. This could have timed out the lock, and another process could have
- * acquired the lock and started writing to bookkeeper. Therefore other mechanisms
- * are required to ensure correctness (i.e. Fencing).
+ * acquired the lock and started writing to bookkeeper. Therefore other
+ * mechanisms are required to ensure correctness (i.e. Fencing).
  */
 class WriteLock implements Watcher {
   static final Log LOG = LogFactory.getLog(WriteLock.class);
@@ -62,7 +61,7 @@ class WriteLock implements Watcher {
     try {
       if (zkc.exists(lockpath, false) == null) {
         String localString = InetAddress.getLocalHost().toString();
-        zkc.create(lockpath, localString.getBytes(), 
+        zkc.create(lockpath, localString.getBytes(),
                    Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
       }
     } catch (Exception e) {
@@ -75,23 +74,23 @@ class WriteLock implements Watcher {
       if (lockCount.get() == 0) {
         try {
           synchronized(this) {
-            if (lockCount.get() == 0) {
+            if (lockCount.get() > 0) {
               lockCount.incrementAndGet();
               return;
             }
-            myznode = zkc.create(lockpath + "/lock-", new byte[] {'0'}, 
-                                 Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
+            myznode = zkc.create(lockpath + "/lock-", new byte[] {'0'},
+                                 Ids.OPEN_ACL_UNSAFE,
+                                 CreateMode.EPHEMERAL_SEQUENTIAL);
             if (LOG.isTraceEnabled()) {
               LOG.trace("Acquiring lock, trying " + myznode);
             }
-            
-            List<String> nodes = zkc.getChildren(lockpath, false); 
+
+            List<String> nodes = zkc.getChildren(lockpath, false);
             Collections.sort(nodes, new Comparator<String>() {
                 public int compare(String o1,
                                    String o2) {
                   Integer l1 = Integer.valueOf(o1.replace("lock-", ""));
                   Integer l2 = Integer.valueOf(o2.replace("lock-", ""));
-                  
                   return l1 - l2;
                 }
               });
@@ -100,10 +99,10 @@ class WriteLock implements Watcher {
                 LOG.trace("Lock acquired - " + myznode);
               }
               lockCount.set(1);
-              zkc.exists(myznode, this); 
-               return;
+              zkc.exists(myznode, this);
+              return;
             } else {
-              LOG.error("Failed to acquire lock with " + myznode 
+              LOG.error("Failed to acquire lock with " + myznode
                         + ", " + nodes.get(0) + " already has it");
               throw new IOException("Could not acquire lock");
             }
@@ -115,7 +114,7 @@ class WriteLock implements Watcher {
         }
       } else {
         int ret = lockCount.getAndIncrement();
-        if (ret == 0) { 
+        if (ret == 0) {
           lockCount.decrementAndGet();
           continue; // try again;
         } else {
@@ -129,7 +128,8 @@ class WriteLock implements Watcher {
     try {
       if (lockCount.decrementAndGet() <= 0) {
         if (lockCount.get() < 0) {
-          LOG.warn("Unbalanced lock handling somewhere, lockCount down to " + lockCount.get());
+          LOG.warn("Unbalanced lock handling somewhere, lockCount down to "
+                   + lockCount.get());
         }
         synchronized(this) {
           if (lockCount.get() <= 0) {
@@ -142,7 +142,7 @@ class WriteLock implements Watcher {
             }
           }
         }
-      } 
+      }
     } catch (Exception e) {
       throw new IOException("Exception accessing Zookeeper", e);
     }
@@ -153,7 +153,7 @@ class WriteLock implements Watcher {
       throw new IOException("Lost writer lock");
     }
   }
- 
+
   boolean haveLock() throws IOException {
     return lockCount.get() > 0;
   }
@@ -161,20 +161,23 @@ class WriteLock implements Watcher {
   public void process(WatchedEvent event) {
     if (event.getState() == KeeperState.Disconnected
         || event.getState() == KeeperState.Expired) {
-      LOG.warn("Lost zookeeper session, lost lock " + myznode);
+      LOG.warn("Lost zookeeper session, lost lock ");
       lockCount.set(0);
     } else {
-      LOG.info("Zookeeper event " + event + " received, reapplying watch to " + myznode);
       // reapply the watch
-      if (myznode != null) {
-        try {
-          zkc.exists(myznode, this); 
-        } catch (Exception e) {
-          LOG.warn("Could not set watch on lock, releasing", e);
+      synchronized (this) {
+        LOG.info("Zookeeper event " + event
+                 + " received, reapplying watch to " + myznode);
+        if (myznode != null) {
           try {
-            release();
-          } catch (IOException ioe) {
-            LOG.error("Could not release Zk lock", ioe);
+            zkc.exists(myznode, this);
+          } catch (Exception e) {
+            LOG.warn("Could not set watch on lock, releasing", e);
+            try {
+              release();
+            } catch (IOException ioe) {
+              LOG.error("Could not release Zk lock", ioe);
+            }
           }
         }
       }

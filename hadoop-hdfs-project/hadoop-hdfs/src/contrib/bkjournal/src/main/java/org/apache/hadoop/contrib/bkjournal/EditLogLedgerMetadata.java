@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hdfs.server.namenode.bkjournal;
+package org.apache.hadoop.contrib.bkjournal;
 
 import java.io.IOException;
 import java.util.Comparator;
@@ -37,13 +37,13 @@ public class EditLogLedgerMetadata {
   static final Log LOG = LogFactory.getLog(EditLogLedgerMetadata.class);
 
   private String zkPath;
-  final private long ledgerId;
-  final private int version;
-  final private long firstTxId;
+  private final long ledgerId;
+  private final int version;
+  private final long firstTxId;
   private long lastTxId;
   private boolean inprogress;
   
-  public static Comparator COMPARATOR 
+  public static final Comparator COMPARATOR 
     = new Comparator<EditLogLedgerMetadata>() {
     public int compare(EditLogLedgerMetadata o1,
         EditLogLedgerMetadata o2) {
@@ -101,9 +101,9 @@ public class EditLogLedgerMetadata {
     return this.inprogress;
   }
 
-  void finalizeLedger(long lastTxId) {
+  void finalizeLedger(long newLastTxId) {
     assert this.lastTxId == HdfsConstants.INVALID_TXID;
-    this.lastTxId = lastTxId;
+    this.lastTxId = newLastTxId;
     this.inprogress = false;      
   }
   
@@ -179,6 +179,15 @@ public class EditLogLedgerMetadata {
       && firstTxId == ol.firstTxId
       && lastTxId == ol.lastTxId
       && version == ol.version;
+  }
+
+ public int hashCode() { 
+    int hash = 1;
+    hash = hash * 31 + (int)ledgerId;
+    hash = hash * 31 + (int)firstTxId;
+    hash = hash * 31 + (int)lastTxId;
+    hash = hash * 31 + (int)version;
+    return hash;
   }
     
   public String toString() {

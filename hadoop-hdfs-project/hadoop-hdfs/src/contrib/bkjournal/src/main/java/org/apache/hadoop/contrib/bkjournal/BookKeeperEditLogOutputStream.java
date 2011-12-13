@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hdfs.server.namenode.bkjournal;
+package org.apache.hadoop.contrib.bkjournal;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CountDownLatch;
@@ -29,23 +29,21 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.Writer;
 
 import org.apache.hadoop.hdfs.server.namenode.EditLogOutputStream;
-import org.apache.hadoop.hdfs.server.namenode.FSEditLog;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp;
-import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.DataOutputBuffer;
 import java.io.IOException;
-
-import java.util.zip.Checksum;
 
 /**
  * Output stream for BookKeeper Journal.
  * Multiple complete edit log entries are packed into a single bookkeeper
- * entry before sending it over the network. The fact that the edit log entries are
- * complete in the bookkeeper entries means that each bookkeeper log entry can be 
- * read as a complete edit log. This is useful for recover, as we don't need to 
- * read through the entire edit log segment to get the last written entry.
+ * entry before sending it over the network. The fact that the edit log entries
+ * are complete in the bookkeeper entries means that each bookkeeper log entry
+ *can be read as a complete edit log. This is useful for recover, as we don't
+ * need to read through the entire edit log segment to get the last written
+ * entry.
  */
-class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCallback {
+class BookKeeperEditLogOutputStream
+  extends EditLogOutputStream implements AddCallback {
   private final DataOutputBuffer bufCurrent;
   private final AtomicInteger outstandingRequests;
   private final int transmissionThreshold;
@@ -53,24 +51,26 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
   private CountDownLatch syncLatch;
   private final WriteLock wl;
   private final Writer writer;
-  
-  /** 
+
+  /**
    * Construct an edit log output stream which writes to a ledger.
 
    */
   protected BookKeeperEditLogOutputStream(Configuration conf,
-                                          LedgerHandle lh, WriteLock wl) throws IOException {
+                                          LedgerHandle lh, WriteLock wl)
+      throws IOException {
     super();
-    
+
     bufCurrent = new DataOutputBuffer();
-    outstandingRequests = new AtomicInteger(0);;
+    outstandingRequests = new AtomicInteger(0);
     syncLatch = null;
     this.lh = lh;
     this.wl = wl;
     this.wl.acquire();
     this.writer = new Writer(bufCurrent);
-    this.transmissionThreshold = conf.getInt(BookKeeperJournalManager.BKJM_OUTPUT_BUFFER_SIZE, 
-        BookKeeperJournalManager.BKJM_OUTPUT_BUFFER_SIZE_DEFAULT);
+    this.transmissionThreshold
+      = conf.getInt(BookKeeperJournalManager.BKJM_OUTPUT_BUFFER_SIZE,
+                    BookKeeperJournalManager.BKJM_OUTPUT_BUFFER_SIZE_DEFAULT);
   }
 
   @Override
@@ -114,7 +114,7 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
     wl.checkWriteLock();
 
     writer.writeOp(op);
-    
+
     if (bufCurrent.getLength() > transmissionThreshold) {
       transmit();
     }
@@ -125,8 +125,8 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
     wl.checkWriteLock();
 
     transmit();
-    
-    synchronized(outstandingRequests) {
+
+    synchronized(this) {
       syncLatch = new CountDownLatch(outstandingRequests.get());
     }
   }
@@ -134,7 +134,7 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
   @Override
   public void flushAndSync() throws IOException {
     wl.checkWriteLock();
-        
+
     assert(syncLatch != null);
     try {
       syncLatch.await();
@@ -145,17 +145,18 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
     syncLatch = null;
     // wait for whatever we wait on
   }
-  
+
   /**
    * Transmit the current buffer to bookkeeper.
-   * Synchronised at the FSEditLog level. #write() and #setReadyToFlush() 
+   * Synchronised at the FSEditLog level. #write() and #setReadyToFlush()
    * are never called at the same time.
    */
   private void transmit() throws IOException {
     wl.checkWriteLock();
 
     if (bufCurrent.getLength() > 0) {
-      byte[] entry = Arrays.copyOf(bufCurrent.getData(), bufCurrent.getLength());
+      byte[] entry = Arrays.copyOf(bufCurrent.getData(),
+                                   bufCurrent.getLength());
       lh.asyncAddEntry(entry, this, null);
       bufCurrent.reset();
       outstandingRequests.incrementAndGet();
@@ -163,8 +164,9 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
   }
 
   @Override
-  public void addComplete(int rc, LedgerHandle lh, long entryId, Object ctx) {
-    synchronized(outstandingRequests) {
+  public void addComplete(int rc, LedgerHandle handle,
+                          long entryId, Object ctx) {
+    synchronized(this) {
       outstandingRequests.decrementAndGet();
       CountDownLatch l = syncLatch;
       if (l != null) {

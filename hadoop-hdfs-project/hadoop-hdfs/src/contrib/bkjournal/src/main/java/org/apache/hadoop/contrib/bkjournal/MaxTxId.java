@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hdfs.server.namenode.bkjournal;
+package org.apache.hadoop.contrib.bkjournal;
 
 import java.io.IOException;
 import org.apache.zookeeper.ZooKeeper;
@@ -32,12 +32,11 @@ import org.apache.commons.logging.LogFactory;
  */
 class MaxTxId {
   static final Log LOG = LogFactory.getLog(MaxTxId.class);
-
-  final private ZooKeeper zkc;
-  final private String path;
+  
+  private final ZooKeeper zkc;
+  private final String path;
 
   private Stat currentStat;
-  private long currentMax;
 
   MaxTxId(ZooKeeper zkc, String path) {
     this.zkc = zkc;
@@ -62,7 +61,6 @@ class MaxTxId {
       } catch (Exception e) {
         throw new IOException("Error writing max tx id", e);
       }
-      currentMax = maxTxId;
     }
   }
 
@@ -74,8 +72,7 @@ class MaxTxId {
       } else {
         byte[] bytes = zkc.getData(path, false, currentStat);
         String txidString = new String(bytes, "UTF-8");
-        currentMax = Long.valueOf(txidString);
-        return currentMax;
+        return Long.valueOf(txidString);
       }
     } catch (Exception e) {
       throw new IOException("Error reading the max tx id from zk", e);

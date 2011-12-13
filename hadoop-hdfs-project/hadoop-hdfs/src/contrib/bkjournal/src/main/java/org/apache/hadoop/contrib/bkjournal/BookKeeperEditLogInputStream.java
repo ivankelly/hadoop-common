@@ -15,16 +15,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hdfs.server.namenode.bkjournal;
+package org.apache.hadoop.contrib.bkjournal;
 
-import java.io.ByteArrayInputStream;
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Enumeration;
 
-import org.apache.hadoop.io.DataInputBuffer;
 import org.apache.hadoop.hdfs.server.namenode.EditLogInputStream;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogLoader;
@@ -35,24 +33,25 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 /**
- * Input stream which reads from a BookKeeper ledger
+ * Input stream which reads from a BookKeeper ledger.
  */
-public class BookKeeperEditLogInputStream extends EditLogInputStream {
+class BookKeeperEditLogInputStream extends EditLogInputStream {
   static final Log LOG = LogFactory.getLog(BookKeeperEditLogInputStream.class);
 
   private final long firstTxId;
   private final long lastTxId;
   private final int logVersion;
-  final LedgerHandle lh;
+  private final LedgerHandle lh;
 
   private final FSEditLogOp.Reader reader;
   private final FSEditLogLoader.PositionTrackingInputStream tracker;
 
   /**
-   * Construct BookKeeper edit log input stream. 
+   * Construct BookKeeper edit log input stream.
    * Starts reading from the first entry of the ledger.
    */
-  BookKeeperEditLogInputStream(LedgerHandle lh, EditLogLedgerMetadata metadata) 
+  BookKeeperEditLogInputStream(final LedgerHandle lh, 
+                               final EditLogLedgerMetadata metadata)
       throws IOException {
     this(lh, metadata, 0);
   }
@@ -120,7 +119,7 @@ public class BookKeeperEditLogInputStream extends EditLogInputStream {
   
   @Override
   public String getName() {
-    return String.format("BookKeeper[%s,first=%ld,last=%ld]", 
+    return String.format("BookKeeper[%s,first=%d,last=%d]", 
         lh.toString(), firstTxId, lastTxId);
   }
 
@@ -136,8 +135,8 @@ public class BookKeeperEditLogInputStream extends EditLogInputStream {
    */
   private static class LedgerInputStream extends InputStream {
     private long readEntries;
-    InputStream entryStream = null;
-    final LedgerHandle lh;
+    private InputStream entryStream = null;
+    private final LedgerHandle lh;
     private final long maxEntry;
 
     /**
@@ -166,7 +165,8 @@ public class BookKeeperEditLogInputStream extends EditLogInputStream {
         if (readEntries > maxEntry) {
           return null;
         }
-        Enumeration<LedgerEntry> entries = lh.readEntries(readEntries, readEntries);
+        Enumeration<LedgerEntry> entries 
+          = lh.readEntries(readEntries, readEntries);
         readEntries++;
         if (entries.hasMoreElements()) {
             LedgerEntry e = entries.nextElement();
@@ -181,9 +181,12 @@ public class BookKeeperEditLogInputStream extends EditLogInputStream {
 
     @Override
     public int read() throws IOException {
-      byte[] b = new byte[4];
-      read(b, 0, 4);
-      return (b[0] << 3 | b[1] << 2 | b[2] << 1 | b[3]);
+      byte[] b = new byte[1];
+      if (read(b, 0, 1) != 1) {
+        return -1;
+      } else {
+        return b[0];
+      }
     }
     
     @Override

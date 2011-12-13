@@ -109,12 +109,6 @@
       <artifactId>ant</artifactId>
       <scope>provided</scope>
     </dependency>
-    <dependency>
-      <groupId>org.apache.bookkeeper</groupId>
-      <artifactId>bookkeeper-server</artifactId>
-      <version>4.0.0</version>
-      <scope>compile</scope>
-    </dependency>
   </dependencies>
   <build>
     <plugins>

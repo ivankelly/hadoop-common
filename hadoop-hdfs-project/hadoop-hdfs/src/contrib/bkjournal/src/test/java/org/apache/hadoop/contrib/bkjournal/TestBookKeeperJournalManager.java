@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hdfs.server.namenode.bkjournal;
+package org.apache.hadoop.contrib.bkjournal;
 
 import static org.junit.Assert.*;
 
@@ -25,6 +25,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.util.LocalBookKeeper;
 
@@ -57,8 +59,8 @@ import org.apache.hadoop.hdfs.server.namenode.JournalManager;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.KeeperException;
 
-import org.apache.hadoop.hdfs.server.namenode.bkjournal.BookKeeperJournalManager;
 import com.google.common.collect.ImmutableList;
 
 import java.util.zip.CheckedInputStream;
@@ -77,13 +79,31 @@ public class TestBookKeeperJournalManager {
   protected static Configuration conf = new Configuration();
   private ZooKeeper zkc;
 
+  private static ZooKeeper connectZooKeeper(String ensemble) 
+      throws IOException, KeeperException, InterruptedException {
+    final CountDownLatch latch = new CountDownLatch(1);
+        
+    ZooKeeper zkc = new ZooKeeper(zkEnsemble, 3600, new Watcher() {
+        public void process(WatchedEvent event) {
+          if (event.getState() == Watcher.Event.KeeperState.SyncConnected) {
+            latch.countDown();
+          }
+        }
+      });
+    if (!latch.await(3, TimeUnit.SECONDS)) {
+      throw new IOException("Zookeeper took too long to connect");
+    }
+    return zkc;
+  }
+
   @BeforeClass
   public static void setupBookkeeper() throws Exception {
+    final int numBookies = 5;
     bkthread = new Thread() {
         public void run() {
           try {
             String[] args = new String[1];
-            args[0] = "5";
+            args[0] = String.valueOf(numBookies);
             LOG.info("Starting bk");
             LocalBookKeeper.main(args);
           } catch (InterruptedException e) {
@@ -98,15 +118,34 @@ public class TestBookKeeperJournalManager {
     if (!LocalBookKeeper.waitForServerUp(zkEnsemble, 10000)) {
       throw new Exception("Error starting zookeeper/bookkeeper");
     }
-    
-    Thread.sleep(10);
+
+    ZooKeeper zkc = connectZooKeeper(zkEnsemble);
+    try {
+      boolean up = false;
+      for (int i = 0; i < 10; i++) {
+        try {
+          List<String> children = zkc.getChildren("/ledgers/available", 
+                                                  false);
+          if (children.size() == numBookies) {
+            up = true;
+            break;
+          }
+        } catch (KeeperException e) {
+          // ignore
+        }
+        Thread.sleep(1000);
+      }
+      if (!up) {
+        throw new IOException("Not enough bookies started");
+      }
+    } finally {
+      zkc.close();
+    }
   }
   
   @Before
   public void setup() throws Exception {
-    zkc = new ZooKeeper(zkEnsemble, 3600, new Watcher() {
-        public void process(WatchedEvent event) {}
-      });
+    zkc = connectZooKeeper(zkEnsemble);
   }
 
   @After
