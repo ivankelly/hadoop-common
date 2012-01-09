@@ -17,7 +17,10 @@ How do I build?
  This will generate a jar with all the dependencies needed by the journal
  manager, 
  
- target/hadoop-hdfs-bkjournal-<VERSION>-jar-with-dependencies.jar
+ target/hadoop-hdfs-bkjournal-<VERSION>.jar
+
+ Note that the -Pdist part of the build command is important, as otherwise
+ the dependencies would not be packaged in the jar.
 
 -------------------------------------------------------------------------------
 How do I use the BookKeeper Journal?
@@ -26,7 +29,7 @@ How do I use the BookKeeper Journal?
  jar, generated above, into the lib directory of hdfs. In the standard 
  distribution of HDFS, this is at $HADOOP_HDFS_HOME/share/hadoop/hdfs/lib/
 
-   cp target/hadoop-hdfs-bkjournal-<VERSION>-jar-with-dependencies.jar \
+   cp target/hadoop-hdfs-bkjournal-<VERSION>.jar \
     $HADOOP_HDFS_HOME/share/hadoop/hdfs/lib/
 
  Then, in hdfs-site.xml, set the following properties.
