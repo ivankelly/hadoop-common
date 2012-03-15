@@ -218,7 +218,7 @@ public class BookKeeperJournalManager implements JournalManager {
         currentLedger.close();
       }
       currentLedger = bkc.createLedger(ensembleSize, quorumSize,
-                                       BookKeeper.DigestType.MAC,
+                                       BookKeeper.DigestType.CRC32,
                                        digestpw.getBytes());
       String znodePath = inprogressZNode(txId);
       EditLogLedgerMetadata l = new EditLogLedgerMetadata(znodePath,
@@ -334,11 +334,11 @@ public class BookKeeperJournalManager implements JournalManager {
           LedgerHandle h;
           if (l.isInProgress()) { // we don't want to fence the current journal
             h = bkc.openLedgerNoRecovery(l.getLedgerId(),
-                                         BookKeeper.DigestType.MAC,
+                                         BookKeeper.DigestType.CRC32,
                                          digestpw.getBytes());
           } else {
             h = bkc.openLedger(l.getLedgerId(),
-                               BookKeeper.DigestType.MAC,
+                               BookKeeper.DigestType.CRC32,
                                digestpw.getBytes());
           }
           BookKeeperEditLogInputStream s
@@ -460,6 +460,7 @@ public class BookKeeperJournalManager implements JournalManager {
   @Override
   public void close() throws IOException {
     try {
+      wl.release();
       bkc.close();
       zkc.close();
     } catch (Exception e) {
@@ -487,11 +488,11 @@ public class BookKeeperJournalManager implements JournalManager {
       LedgerHandle lh = null;
       if (fence) {
         lh = bkc.openLedger(l.getLedgerId(),
-                            BookKeeper.DigestType.MAC,
+                            BookKeeper.DigestType.CRC32,
                             digestpw.getBytes());
       } else {
         lh = bkc.openLedgerNoRecovery(l.getLedgerId(),
-                                      BookKeeper.DigestType.MAC,
+                                      BookKeeper.DigestType.CRC32,
                                       digestpw.getBytes());
       }
       long lastAddConfirmed = lh.getLastAddConfirmed();

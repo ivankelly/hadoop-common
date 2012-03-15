@@ -19,8 +19,10 @@ package org.apache.hadoop.contrib.bkjournal;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 import java.util.Arrays;
+import java.util.Queue;
 
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BKException;
@@ -32,6 +34,7 @@ import org.apache.hadoop.hdfs.server.namenode.EditLogOutputStream;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp;
 import org.apache.hadoop.io.DataOutputBuffer;
 import java.io.IOException;
+import org.apache.hadoop.io.IOUtils;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -49,7 +52,7 @@ class BookKeeperEditLogOutputStream
   extends EditLogOutputStream implements AddCallback {
   static final Log LOG = LogFactory.getLog(BookKeeperEditLogOutputStream.class);
 
-  private final DataOutputBuffer bufCurrent;
+  private DataOutputBuffer bufCurrent;
   private final AtomicInteger outstandingRequests;
   private final int transmissionThreshold;
   private final LedgerHandle lh;
@@ -57,7 +60,10 @@ class BookKeeperEditLogOutputStream
   private final AtomicInteger transmitResult
     = new AtomicInteger(BKException.Code.OK);
   private final WriteLock wl;
-  private final Writer writer;
+  private Writer writer;
+
+  private final Queue<DataOutputBuffer> bufferQueue
+    = new ConcurrentLinkedQueue<DataOutputBuffer>();
 
   /**
    * Construct an edit log output stream which writes to a ledger.
@@ -68,16 +74,31 @@ class BookKeeperEditLogOutputStream
       throws IOException {
     super();
 
-    bufCurrent = new DataOutputBuffer();
     outstandingRequests = new AtomicInteger(0);
     syncLatch = null;
     this.lh = lh;
     this.wl = wl;
     this.wl.acquire();
-    this.writer = new Writer(bufCurrent);
     this.transmissionThreshold
       = conf.getInt(BookKeeperJournalManager.BKJM_OUTPUT_BUFFER_SIZE,
                     BookKeeperJournalManager.BKJM_OUTPUT_BUFFER_SIZE_DEFAULT);
+
+    this.bufCurrent = new DataOutputBuffer();
+    this.writer = new Writer(bufCurrent);
+  }
+
+  public DataOutputBuffer getBuffer() {
+    DataOutputBuffer b = bufferQueue.poll();
+    if (b == null) {
+      return new DataOutputBuffer(transmissionThreshold);
+    } else {
+      return b;
+    }
+  }
+
+  public void freeBuffer(DataOutputBuffer b) {
+    b.reset();
+    bufferQueue.add(b);
   }
 
   @Override
@@ -117,18 +138,14 @@ class BookKeeperEditLogOutputStream
   }
 
   @Override
-  public void write(FSEditLogOp op) throws IOException {
+  synchronized public void write(FSEditLogOp op) throws IOException {
     wl.checkWriteLock();
 
     writer.writeOp(op);
-
-    if (bufCurrent.getLength() > transmissionThreshold) {
-      transmit();
-    }
   }
 
   @Override
-  public void setReadyToFlush() throws IOException {
+  synchronized public void setReadyToFlush() throws IOException {
     wl.checkWriteLock();
 
     transmit();
@@ -163,7 +180,7 @@ class BookKeeperEditLogOutputStream
    * Synchronised at the FSEditLog level. #write() and #setReadyToFlush()
    * are never called at the same time.
    */
-  private void transmit() throws IOException {
+  synchronized private void transmit() throws IOException {
     wl.checkWriteLock();
 
     if (!transmitResult.compareAndSet(BKException.Code.OK,
@@ -173,10 +190,12 @@ class BookKeeperEditLogOutputStream
           + ") " + BKException.getMessage(transmitResult.get()));
     }
     if (bufCurrent.getLength() > 0) {
-      byte[] entry = Arrays.copyOf(bufCurrent.getData(),
-                                   bufCurrent.getLength());
-      lh.asyncAddEntry(entry, this, null);
-      bufCurrent.reset();
+      DataOutputBuffer buf = bufCurrent;
+      bufCurrent = getBuffer();
+      writer = new Writer(bufCurrent);
+
+      lh.asyncAddEntry(buf.getData(), 0, buf.getLength(),
+                       this, buf);
       outstandingRequests.incrementAndGet();
     }
   }
@@ -191,6 +210,9 @@ class BookKeeperEditLogOutputStream
             + BKException.getMessage(rc) + "\""
             + " but is already (" + transmitResult.get() + ") \""
             + BKException.getMessage(transmitResult.get()) + "\"");
+      }
+      if (ctx instanceof DataOutputBuffer) {
+        freeBuffer((DataOutputBuffer)ctx);
       }
       CountDownLatch l = syncLatch;
       if (l != null) {
