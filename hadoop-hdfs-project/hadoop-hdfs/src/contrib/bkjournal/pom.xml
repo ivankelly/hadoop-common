@@ -199,10 +199,6 @@ http://maven.apache.org/xsd/maven-4.0.0.xsd">
                   </artifactSet>
                 <relocations>
                   <relocation>
-                    <pattern>org.apache.bookkeeper</pattern>
-                    <shadedPattern>hidden.bkjournal.org.apache.bookkeeper</shadedPattern>
-                  </relocation>
-                  <relocation>
                     <pattern>org.apache.zookeeper</pattern>
                     <shadedPattern>hidden.bkjournal.org.apache.zookeeper</shadedPattern>
                   </relocation>
