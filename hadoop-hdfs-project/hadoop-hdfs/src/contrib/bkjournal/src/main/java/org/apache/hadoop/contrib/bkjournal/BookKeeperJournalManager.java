@@ -120,6 +120,9 @@ public class BookKeeperJournalManager implements JournalManager {
     = "dfs.namenode.bookkeeperjournal.quorum-size";
   public static final int BKJM_BOOKKEEPER_QUORUM_SIZE_DEFAULT = 2;
 
+ public static final String BKJM_BOOKKEEPER_ACK_QUORUM_SIZE
+    = "dfs.namenode.bookkeeperjournal.ack-quorum-size";
+
   public static final String BKJM_BOOKKEEPER_DIGEST_PW
     = "dfs.namenode.bookkeeperjournal.digestPw";
   public static final String BKJM_BOOKKEEPER_DIGEST_PW_DEFAULT = "";
@@ -146,6 +149,7 @@ public class BookKeeperJournalManager implements JournalManager {
   private final MaxTxId maxTxId;
   private final int ensembleSize;
   private final int quorumSize;
+  private final int ackQuorumSize;
   private final String digestpw;
   private final CountDownLatch zkConnectLatch;
   private final NamespaceInfo nsInfo;
@@ -165,6 +169,8 @@ public class BookKeeperJournalManager implements JournalManager {
                                BKJM_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT);
     quorumSize = conf.getInt(BKJM_BOOKKEEPER_QUORUM_SIZE,
                              BKJM_BOOKKEEPER_QUORUM_SIZE_DEFAULT);
+    ackQuorumSize = conf.getInt(BKJM_BOOKKEEPER_ACK_QUORUM_SIZE,
+                                quorumSize);
 
     ledgerPath = zkPath + "/ledgers";
     String maxTxIdPath = zkPath + "/maxtxid";
@@ -322,7 +328,7 @@ public class BookKeeperJournalManager implements JournalManager {
         // bookkeeper errored on last stream, clean up ledger
         currentLedger.close();
       }
-      currentLedger = bkc.createLedger(ensembleSize, quorumSize,
+      currentLedger = bkc.createLedger(ensembleSize, quorumSize, ackQuorumSize,
                                        BookKeeper.DigestType.MAC,
                                        digestpw.getBytes());
     } catch (BKException bke) {
